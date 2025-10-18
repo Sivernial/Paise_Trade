@@ -30,7 +30,7 @@ while not request_token:
 try:
     data = kite.generate_session(request_token, api_secret=API_SECRET)
     access_token = data["access_token"]
-    print("\n✅ Access Token generated successfully!\n")
+    print("\n✅ Access Token generated successfully!!\n")
     print("ACCESS_TOKEN:", access_token)
 
     with open("access_token.txt", "w") as f:
