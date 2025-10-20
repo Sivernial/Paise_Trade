@@ -6,8 +6,8 @@ Shows how to use all components together for backtesting and live trading
 import sys
 import os
 from datetime import datetime, timedelta
-import warnings
-warnings.filterwarnings('ignore')
+import pandas as pd
+import numpy as np
 
 # Add the core directory to the path
 sys.path.append(os.path.join(os.path.dirname(__file__), 'core'))
@@ -80,9 +80,6 @@ def run_backtest_demo():
     # 3. The required Python packages installed
     
     # For now, we'll create some synthetic data for demonstration
-    import pandas as pd
-    import numpy as np
-    
     # Create synthetic historical data for demo
     dates = pd.date_range(start='2023-01-01', end='2023-12-31', freq='D')
     
@@ -257,8 +254,6 @@ def demo_strategy_comparison():
     print("\n🔬 Strategy Comparison Demo...")
     
     # Create synthetic data for strategy testing
-    import pandas as pd
-    import numpy as np
     
     np.random.seed(100)
     dates = pd.date_range(start='2023-01-01', end='2023-12-31', freq='D')
