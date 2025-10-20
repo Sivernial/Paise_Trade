@@ -8,27 +8,13 @@ import numpy as np
 from abc import ABC, abstractmethod
 from typing import Dict, List, Optional, Any, Tuple
 from datetime import datetime, timedelta
-from dataclasses import dataclass
-from enum import Enum
+
+# Import dataclasses from data_structures
+from data_structures.strategy_dataclass import Signal, SignalType
 
 from .technical_analysis import TechnicalIndicators, PatternRecognition, TrendAnalysis
-from .backtesting import BacktestEngine, OrderType
-
-class SignalType(Enum):
-    BUY = "BUY"
-    SELL = "SELL"
-    HOLD = "HOLD"
-
-@dataclass
-class Signal:
-    """Trading signal with metadata"""
-    symbol: str
-    signal_type: SignalType
-    confidence: float  # 0.0 to 1.0
-    price: float
-    timestamp: datetime
-    reason: str = ""
-    indicators: Dict[str, float] = None
+from .backtesting import BacktestEngine
+from data_structures.backtesting_dataclass import OrderType
 
 class BaseStrategy(ABC):
     """

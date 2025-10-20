@@ -6,55 +6,14 @@ import pandas as pd
 import numpy as np
 from datetime import datetime, timedelta
 from typing import Dict, List, Optional, Union, Any
-from dataclasses import dataclass
-from enum import Enum
 import logging
 import time
 from kiteconnect import KiteConnect
 
-class OrderType(Enum):
-    MARKET = "MARKET"
-    LIMIT = "LIMIT"
-    STOP_LOSS = "SL"
-    STOP_LOSS_MARKET = "SL-M"
-
-class OrderStatus(Enum):
-    PENDING = "PENDING"
-    OPEN = "OPEN"
-    COMPLETE = "COMPLETE"
-    CANCELLED = "CANCELLED"
-    REJECTED = "REJECTED"
-
-class TransactionType(Enum):
-    BUY = "BUY"
-    SELL = "SELL"
-
-class ProductType(Enum):
-    CNC = "CNC"  # Cash and Carry
-    MIS = "MIS"  # Margin Intraday Squareoff
-    NRML = "NRML"  # Normal
-
-@dataclass
-class Order:
-    """Enhanced order representation"""
-    symbol: str
-    exchange: str
-    transaction_type: TransactionType
-    quantity: int
-    price: float
-    order_type: OrderType
-    product_type: ProductType
-    order_id: str = ""
-    status: OrderStatus = OrderStatus.PENDING
-    filled_quantity: int = 0
-    average_price: float = 0.0
-    timestamp: datetime = None
-    update_timestamp: datetime = None
-    tag: str = ""
-    
-    def __post_init__(self):
-        if self.timestamp is None:
-            self.timestamp = datetime.now()
+# Import dataclasses from data_structures
+from data_structures.trading_dataclass import (
+    Order, OrderType, OrderStatus, TransactionType, ProductType
+)
 
 class TradingEngine:
     """
