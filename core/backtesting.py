@@ -43,6 +43,7 @@ class BacktestEngine:
         self.positions: Dict[str, Position] = {}
         self.orders: List[Order] = []
         self.trades: List[Dict] = []
+        self.completed_trades: List[Dict] = []  # Properly matched buy/sell pairs
         self.portfolio_values: List[Dict] = []
         
         # Performance tracking
@@ -143,11 +144,11 @@ class BacktestEngine:
         self._record_trade(order)
     
     def _update_position(self, order: Order):
-        """Update position based on executed order"""
+        """Update position based on executed order and track completed trades"""
         symbol = order.symbol
         
         if symbol not in self.positions:
-            # New position
+            # New position - only for BUY orders
             if order.order_type == OrderType.BUY:
                 self.positions[symbol] = Position(
                     symbol=symbol,
@@ -161,14 +162,37 @@ class BacktestEngine:
             pos = self.positions[symbol]
             
             if order.order_type == OrderType.BUY:
-                # Add to position
+                # Add to position (average down/up)
                 total_cost = pos.quantity * pos.entry_price + order.quantity * order.fill_price
                 total_quantity = pos.quantity + order.quantity
                 pos.entry_price = total_cost / total_quantity
                 pos.quantity = total_quantity
             else:
-                # Reduce position
-                pos.quantity -= order.quantity
+                # SELL order - create completed trade record
+                sell_quantity = min(order.quantity, pos.quantity)
+                
+                # Calculate trade P&L
+                trade_pnl = (order.fill_price - pos.entry_price) * sell_quantity - order.commission
+                trade_return = trade_pnl / (pos.entry_price * sell_quantity)
+                
+                # Record completed trade
+                completed_trade = {
+                    'symbol': symbol,
+                    'entry_date': pos.entry_timestamp,
+                    'exit_date': order.fill_timestamp,
+                    'entry_price': pos.entry_price,
+                    'exit_price': order.fill_price,
+                    'quantity': sell_quantity,
+                    'pnl': trade_pnl,
+                    'return': trade_return,
+                    'commission': order.commission,
+                    'hold_days': (order.fill_timestamp - pos.entry_timestamp).days,
+                    'is_profitable': trade_pnl > 0
+                }
+                self.completed_trades.append(completed_trade)
+                
+                # Update position
+                pos.quantity -= sell_quantity
                 
                 # Close position if quantity reaches zero
                 if pos.quantity <= 0:
@@ -326,27 +350,38 @@ class BacktestEngine:
         sharpe_ratio = annualized_return / volatility if volatility > 0 else 0
         max_drawdown = min(self.drawdown_curve)
         
-        # Trade analysis
-        profitable_trades = len([t for t in self.trades if self._is_profitable_trade(t)])
-        total_trades = len(self.trades)
+        # Trade analysis using completed trades (proper buy/sell pairs)
+        winning_trades_list = self.get_winning_trades()
+        losing_trades_list = self.get_losing_trades()
+        
+        profitable_trades = len(winning_trades_list)
+        total_trades = len(self.completed_trades)
         win_rate = profitable_trades / total_trades if total_trades > 0 else 0
         
-        # Calculate more detailed trade metrics
+        # Calculate trade metrics from completed trades
         trade_returns = self._calculate_trade_returns()
+        trade_pnls = self.get_trade_pnls()
+        
         avg_trade_return = np.mean(trade_returns) if trade_returns else 0
+        avg_trade_pnl = np.mean(trade_pnls) if trade_pnls else 0
         
-        winning_trades = [r for r in trade_returns if r > 0]
-        losing_trades = [r for r in trade_returns if r < 0]
+        # Winning trade metrics
+        winning_returns = [t['return'] for t in winning_trades_list]
+        winning_pnls = [t['pnl'] for t in winning_trades_list]
+        avg_winning_trade = np.mean(winning_returns) if winning_returns else 0
+        avg_winning_pnl = np.mean(winning_pnls) if winning_pnls else 0
+        largest_win = max(winning_pnls) if winning_pnls else 0
         
-        avg_winning_trade = np.mean(winning_trades) if winning_trades else 0
-        avg_losing_trade = np.mean(losing_trades) if losing_trades else 0
+        # Losing trade metrics  
+        losing_returns = [t['return'] for t in losing_trades_list]
+        losing_pnls = [t['pnl'] for t in losing_trades_list]
+        avg_losing_trade = np.mean(losing_returns) if losing_returns else 0
+        avg_losing_pnl = np.mean(losing_pnls) if losing_pnls else 0
+        largest_loss = min(losing_pnls) if losing_pnls else 0
         
-        largest_win = max(winning_trades) if winning_trades else 0
-        largest_loss = min(losing_trades) if losing_trades else 0
-        
-        # Profit factor
-        gross_profit = sum(winning_trades) if winning_trades else 0
-        gross_loss = abs(sum(losing_trades)) if losing_trades else 1
+        # Profit factor (gross profit / gross loss)
+        gross_profit = sum(winning_pnls) if winning_pnls else 0
+        gross_loss = abs(sum(losing_pnls)) if losing_pnls else 1
         profit_factor = gross_profit / gross_loss if gross_loss > 0 else 0
         
         # Calmar ratio
@@ -367,7 +402,7 @@ class BacktestEngine:
             profit_factor=profit_factor,
             total_trades=total_trades,
             profitable_trades=profitable_trades,
-            losing_trades=len(losing_trades),
+            losing_trades=len(losing_trades_list),
             avg_trade_return=avg_trade_return,
             avg_winning_trade=avg_winning_trade,
             avg_losing_trade=avg_losing_trade,
@@ -378,21 +413,24 @@ class BacktestEngine:
         )
     
     def _is_profitable_trade(self, trade: Dict) -> bool:
-        """Determine if a trade was profitable (simplified)"""
-        # This is a simplified check - in practice, you'd match buy/sell pairs
-        return trade['type'] == 'SELL'  # Assumes sells close profitable positions
+        """Determine if a completed trade was profitable"""
+        return trade.get('is_profitable', False)
     
     def _calculate_trade_returns(self) -> List[float]:
-        """Calculate returns for individual trades"""
-        # Simplified trade return calculation
-        # In practice, you'd match buy/sell pairs and calculate P&L
-        returns = []
-        
-        for i in range(1, len(self.equity_curve)):
-            daily_return = (self.equity_curve[i] - self.equity_curve[i-1]) / self.equity_curve[i-1]
-            returns.append(daily_return)
-        
-        return returns
+        """Calculate returns for individual completed trades"""
+        return [trade['return'] for trade in self.completed_trades]
+    
+    def get_trade_pnls(self) -> List[float]:
+        """Get P&L values for all completed trades"""
+        return [trade['pnl'] for trade in self.completed_trades]
+    
+    def get_winning_trades(self) -> List[Dict]:
+        """Get all profitable completed trades"""
+        return [trade for trade in self.completed_trades if trade['is_profitable']]
+    
+    def get_losing_trades(self) -> List[Dict]:
+        """Get all losing completed trades"""
+        return [trade for trade in self.completed_trades if not trade['is_profitable']]
     
     def get_positions_summary(self) -> pd.DataFrame:
         """Get summary of current positions"""
@@ -416,11 +454,27 @@ class BacktestEngine:
         return pd.DataFrame(positions_data)
     
     def get_trades_summary(self) -> pd.DataFrame:
-        """Get summary of all trades"""
+        """Get summary of all executed orders"""
         if not self.trades:
             return pd.DataFrame()
         
         return pd.DataFrame(self.trades)
+    
+    def get_completed_trades_summary(self) -> pd.DataFrame:
+        """Get summary of all completed trade pairs (buy/sell matched)"""
+        if not self.completed_trades:
+            return pd.DataFrame()
+        
+        df = pd.DataFrame(self.completed_trades)
+        
+        # Format for better readability
+        if not df.empty:
+            df['pnl'] = df['pnl'].round(2)
+            df['return'] = (df['return'] * 100).round(2)  # Convert to percentage
+            df['entry_price'] = df['entry_price'].round(2)
+            df['exit_price'] = df['exit_price'].round(2)
+        
+        return df
     
     def print_performance_summary(self, performance: PerformanceMetrics):
         """Print a formatted performance summary"""
@@ -441,7 +495,30 @@ class BacktestEngine:
         print(f"✅ Win Rate: {performance.win_rate:.2%}")
         print(f"💵 Profit Factor: {performance.profit_factor:.3f}")
         print(f"📈 Avg Trade Return: {performance.avg_trade_return:.3%}")
-        print(f"🏆 Largest Win: {performance.largest_win:.3%}")
-        print(f"💔 Largest Loss: {performance.largest_loss:.3%}")
+        print(f"🏆 Largest Win: ${performance.largest_win:.2f}")
+        print(f"💔 Largest Loss: ${performance.largest_loss:.2f}")
         
         print("="*60)
+    
+    def analyze_trade_patterns(self) -> Dict[str, Any]:
+        """Analyze patterns in completed trades"""
+        if not self.completed_trades:
+            return {}
+        
+        df = pd.DataFrame(self.completed_trades)
+        
+        analysis = {
+            'total_completed_trades': len(self.completed_trades),
+            'winning_trades': len(self.get_winning_trades()),
+            'losing_trades': len(self.get_losing_trades()),
+            'avg_hold_days': df['hold_days'].mean(),
+            'avg_winning_hold_days': df[df['is_profitable']]['hold_days'].mean() if len(self.get_winning_trades()) > 0 else 0,
+            'avg_losing_hold_days': df[~df['is_profitable']]['hold_days'].mean() if len(self.get_losing_trades()) > 0 else 0,
+            'total_pnl': df['pnl'].sum(),
+            'avg_trade_pnl': df['pnl'].mean(),
+            'pnl_std': df['pnl'].std(),
+            'best_performing_symbol': df.groupby('symbol')['pnl'].sum().idxmax() if not df.empty else None,
+            'worst_performing_symbol': df.groupby('symbol')['pnl'].sum().idxmin() if not df.empty else None,
+        }
+        
+        return analysis
