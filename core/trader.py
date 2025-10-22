@@ -11,9 +11,7 @@ import time
 from kiteconnect import KiteConnect
 
 # Import dataclasses from data_structures
-from data_structures.trading_dataclass import (
-    Order, OrderType, OrderStatus, TransactionType, ProductType
-)
+from data_structures.common import Order, OrderType, OrderStatus, TransactionType, ProductType
 
 class TradingEngine:
     """
@@ -59,6 +57,67 @@ class TradingEngine:
         
         # Current market prices (for paper trading)
         self.current_prices: Dict[str, float] = {}
+    
+    def set_paper_trading(self, paper_trading: bool):
+        """
+        Enable or disable paper trading mode
+        
+        Args:
+            paper_trading: True for paper trading, False for live trading
+        """
+        self.paper_trading = paper_trading
+        if paper_trading:
+            self.logger.info("📝 Paper trading mode enabled")
+        else:
+            self.logger.warning("🚨 Live trading mode enabled - Trading with real money!")
+    
+    def buy(self, symbol: str, quantity: int, price: float = 0.0, exchange: str = "NSE") -> Optional[str]:
+        """
+        Simple buy order helper method
+        
+        Args:
+            symbol: Stock symbol
+            quantity: Number of shares
+            price: Price (0 for market order)
+            exchange: Exchange (default NSE)
+        
+        Returns:
+            Order ID if successful
+        """
+        order_type = OrderType.MARKET if price == 0 else OrderType.LIMIT
+        
+        return self.place_order(
+            symbol=symbol,
+            exchange=exchange,
+            transaction_type=TransactionType.BUY,
+            quantity=quantity,
+            order_type=order_type,
+            price=price
+        )
+    
+    def sell(self, symbol: str, quantity: int, price: float = 0.0, exchange: str = "NSE") -> Optional[str]:
+        """
+        Simple sell order helper method
+        
+        Args:
+            symbol: Stock symbol
+            quantity: Number of shares
+            price: Price (0 for market order)
+            exchange: Exchange (default NSE)
+        
+        Returns:
+            Order ID if successful
+        """
+        order_type = OrderType.MARKET if price == 0 else OrderType.LIMIT
+        
+        return self.place_order(
+            symbol=symbol,
+            exchange=exchange,
+            transaction_type=TransactionType.SELL,
+            quantity=quantity,
+            order_type=order_type,
+            price=price
+        )
     
     def update_market_prices(self, prices: Dict[str, float]):
         """Update current market prices for paper trading"""

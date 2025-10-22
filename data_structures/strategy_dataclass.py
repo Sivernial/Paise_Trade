@@ -5,13 +5,8 @@ Contains all data structures used in the strategy module
 
 from dataclasses import dataclass
 from datetime import datetime
-from enum import Enum
 from typing import Dict, Optional
-
-class SignalType(Enum):
-    BUY = "BUY"
-    SELL = "SELL"
-    HOLD = "HOLD"
+from .common import SignalType
 
 @dataclass
 class Signal:
