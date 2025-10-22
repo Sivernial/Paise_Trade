@@ -181,9 +181,9 @@ class TradingConstants:
     DATETIME_FORMAT = "%Y-%m-%d %H:%M:%S"
     
     # Risk management defaults
-    DEFAULT_STOP_LOSS_PCT = 0.05     # 5%
-    DEFAULT_TAKE_PROFIT_PCT = 0.15   # 15%
-    DEFAULT_MAX_DAILY_LOSS_PCT = 0.05 # 5%
+    DEFAULT_STOP_LOSS_PCT = 0.03     # 3%
+    DEFAULT_TAKE_PROFIT_PCT = 0.12   # 12%
+    DEFAULT_MAX_DAILY_LOSS_PCT = 0.03 # 3%
     DEFAULT_MAX_POSITION_SIZE_PCT = 0.1 # 10%
 
 # Market timings (IST)
