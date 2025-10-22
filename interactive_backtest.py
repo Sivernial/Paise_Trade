@@ -203,8 +203,8 @@ def get_user_inputs():
         
     elif selected_strategy['name'] == 'Bollinger Band Strategy':
         print("Configure Bollinger Band parameters:")
-        strategy_params['bb_period'] = get_int_input("BB period (default 20): ", 20)
-        strategy_params['bb_std'] = get_float_input("BB standard deviations (default 2): ", 2)
+        strategy_params['bb_period'] = get_int_input("BB period (default 15): ", 15)
+        strategy_params['bb_std'] = get_float_input("BB standard deviations (default 1.5): ", 1.5)
         strategy_params['strategy_type'] = get_choice_input(
             "Strategy type (1=Reversal, 2=Breakout): ", 
             {'1': 'reversal', '2': 'breakout'}, 
