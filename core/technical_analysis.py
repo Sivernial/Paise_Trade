@@ -93,36 +93,48 @@ class TechnicalIndicators:
         
         return self._get_cached_or_calculate(cache_key, calculate)
     
-    @staticmethod
-    def macd(data: Union[pd.Series, list], 
+    def macd(self, data: Union[pd.Series, list], 
              fast: int = 12, slow: int = 26, signal: int = 9) -> Tuple[pd.Series, pd.Series, pd.Series]:
-        """MACD (Moving Average Convergence Divergence)"""
-        if isinstance(data, list):
-            data = pd.Series(data)
+        """MACD (Moving Average Convergence Divergence) with caching"""
+        cache_key = self._get_cache_key(data, "macd", fast=fast, slow=slow, signal=signal)
         
-        exp1 = data.ewm(span=fast).mean()
-        exp2 = data.ewm(span=slow).mean()
+        def calculate():
+            if isinstance(data, list):
+                series_data = pd.Series(data)
+            else:
+                series_data = data
+            
+            exp1 = series_data.ewm(span=fast).mean()
+            exp2 = series_data.ewm(span=slow).mean()
+            
+            macd_line = exp1 - exp2
+            signal_line = macd_line.ewm(span=signal).mean()
+            histogram = macd_line - signal_line
+            
+            return macd_line, signal_line, histogram
         
-        macd_line = exp1 - exp2
-        signal_line = macd_line.ewm(span=signal).mean()
-        histogram = macd_line - signal_line
-        
-        return macd_line, signal_line, histogram
+        return self._get_cached_or_calculate(cache_key, calculate)
     
-    @staticmethod
-    def bollinger_bands(data: Union[pd.Series, list], 
+    def bollinger_bands(self, data: Union[pd.Series, list], 
                        period: int = 20, std_dev: float = 2) -> Tuple[pd.Series, pd.Series, pd.Series]:
-        """Bollinger Bands"""
-        if isinstance(data, list):
-            data = pd.Series(data)
+        """Bollinger Bands with caching"""
+        cache_key = self._get_cache_key(data, "bollinger_bands", period=period, std_dev=std_dev)
         
-        sma = data.rolling(window=period).mean()
-        std = data.rolling(window=period).std()
+        def calculate():
+            if isinstance(data, list):
+                series_data = pd.Series(data)
+            else:
+                series_data = data
+            
+            sma = series_data.rolling(window=period).mean()
+            std = series_data.rolling(window=period).std()
+            
+            upper_band = sma + (std * std_dev)
+            lower_band = sma - (std * std_dev)
+            
+            return upper_band, sma, lower_band
         
-        upper_band = sma + (std * std_dev)
-        lower_band = sma - (std * std_dev)
-        
-        return upper_band, sma, lower_band
+        return self._get_cached_or_calculate(cache_key, calculate)
     
     @staticmethod
     def stochastic(high: Union[pd.Series, list], 
@@ -158,9 +170,11 @@ class TechnicalIndicators:
         if isinstance(close, list):
             close = pd.Series(close)
         
+        prev_close = close.shift(1)
+        
         tr1 = high - low
-        tr2 = abs(high - close.shift())
-        tr3 = abs(low - close.shift())
+        tr2 = abs(high - prev_close)
+        tr3 = abs(low - prev_close)
         
         true_range = pd.concat([tr1, tr2, tr3], axis=1).max(axis=1)
         atr = true_range.rolling(window=period).mean()
@@ -331,8 +345,9 @@ class TrendAnalysis:
         Determine trend direction using moving averages
         Returns: 1 (uptrend), -1 (downtrend), 0 (sideways)
         """
-        short_ma = TechnicalIndicators.sma(data, short_period)
-        long_ma = TechnicalIndicators.sma(data, long_period)
+        ta = TechnicalIndicators()
+        short_ma = ta.sma(data, short_period)
+        long_ma = ta.sma(data, long_period)
         
         trend = pd.Series(0, index=data.index)
         trend[short_ma > long_ma] = 1
