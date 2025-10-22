@@ -1,0 +1,53 @@
+# Environment and credentials
+.env
+access_token.txt
+
+# Database files
+*.db
+*.sqlite
+*.sqlite3
+trading_data.db
+historical_data.db
+
+# Python cache
+__pycache__/
+*.pyc
+*.pyo
+*.pyd
+.Python
+*.so
+
+# IDE and editor files
+.vscode/
+.idea/
+*.swp
+*.swo
+*~
+
+# Log files
+*.log
+logs/
+
+# Temporary files
+tmp/
+temp/
+.tmp/
+
+# OS generated files
+.DS_Store
+.DS_Store?
+._*
+.Spotlight-V100
+.Trashes
+ehthumbs.db
+Thumbs.db
+
+# Jupyter Notebook checkpoints
+.ipynb_checkpoints
+
+# Test directories
+path/
+
+# Backup files
+*.bak
+*.backup
