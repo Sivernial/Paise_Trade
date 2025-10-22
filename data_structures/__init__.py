@@ -26,9 +26,15 @@ from .strategy_dataclass import (
 )
 
 from .portfolio_dataclass import (
+    PortfolioMetrics
+)
+
+from .common import (
     Position,
-    PortfolioMetrics,
-    PositionType
+    PositionType,
+    Order,
+    OrderType,
+    OrderStatus
 )
 
 from .config_dataclass import (
@@ -61,6 +67,9 @@ __all__ = [
     'Position',
     'PortfolioMetrics',
     'PositionType',
+    
+    # Common
+    'Order',
     
     # Configuration
     'TradingConfig',

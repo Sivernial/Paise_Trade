@@ -44,17 +44,48 @@ class TechnicalIndicators:
         self._cache.clear()
     
     def sma(self, data: Union[pd.Series, list], period: int) -> pd.Series:
-        """Simple Moving Average with caching"""
-        cache_key = self._get_cache_key(data, "sma", period=period)
-        
-        def calculate():
+        """Simple Moving Average with caching and error handling"""
+        try:
+            # Input validation
+            if period <= 0:
+                raise ValueError(f"Period must be positive, got {period}")
+            
             if isinstance(data, list):
+                if len(data) == 0:
+                    raise ValueError("Input data cannot be empty")
                 series_data = pd.Series(data)
             else:
-                series_data = data
-            return series_data.rolling(window=period).mean()
-        
-        return self._get_cached_or_calculate(cache_key, calculate)
+                if len(data) == 0:
+                    raise ValueError("Input data cannot be empty")
+                series_data = data.copy()
+            
+            if len(series_data) < period:
+                raise ValueError(f"Insufficient data: need at least {period} points, got {len(series_data)}")
+            
+            # Check for invalid values
+            if series_data.isna().all():
+                raise ValueError("All data points are NaN")
+            
+            cache_key = self._get_cache_key(data, "sma", period=period)
+            
+            def calculate():
+                result = series_data.rolling(window=period, min_periods=1).mean()
+                
+                # Handle edge cases
+                if result.isna().all():
+                    warnings.warn("SMA calculation resulted in all NaN values")
+                
+                return result
+            
+            return self._get_cached_or_calculate(cache_key, calculate)
+            
+        except Exception as e:
+            warnings.warn(f"Error calculating SMA: {e}")
+            # Return empty series with same index as input
+            if isinstance(data, list):
+                return pd.Series([np.nan] * len(data))
+            else:
+                return pd.Series([np.nan] * len(data), index=data.index)
     
     def ema(self, data: Union[pd.Series, list], period: int) -> pd.Series:
         """Exponential Moving Average with caching"""
@@ -70,28 +101,54 @@ class TechnicalIndicators:
         return self._get_cached_or_calculate(cache_key, calculate)
     
     def rsi(self, data: Union[pd.Series, list], period: int = 14) -> pd.Series:
-        """Relative Strength Index with caching"""
-        cache_key = self._get_cache_key(data, "rsi", period=period)
-        
-        def calculate():
+        """Relative Strength Index with caching and error handling"""
+        try:
+            # Input validation
+            if period <= 0:
+                raise ValueError(f"Period must be positive, got {period}")
+            
             if isinstance(data, list):
+                if len(data) == 0:
+                    raise ValueError("Input data cannot be empty")
                 series_data = pd.Series(data)
             else:
-                series_data = data
+                if len(data) == 0:
+                    raise ValueError("Input data cannot be empty")
+                series_data = data.copy()
             
-            delta = series_data.diff()
-            gain = delta.where(delta > 0, 0)
-            loss = -delta.where(delta < 0, 0)
+            if len(series_data) < period + 1:  # Need extra point for diff calculation
+                raise ValueError(f"Insufficient data: need at least {period + 1} points, got {len(series_data)}")
             
-            avg_gain = gain.rolling(window=period).mean()
-            avg_loss = loss.rolling(window=period).mean()
+            cache_key = self._get_cache_key(data, "rsi", period=period)
             
-            rs = avg_gain / avg_loss
-            rsi = 100 - (100 / (1 + rs))
+            def calculate():
+                delta = series_data.diff()
+                
+                # Handle potential division by zero
+                gain = delta.where(delta > 0, 0)
+                loss = -delta.where(delta < 0, 0)
+                
+                avg_gain = gain.rolling(window=period, min_periods=1).mean()
+                avg_loss = loss.rolling(window=period, min_periods=1).mean()
+                
+                # Avoid division by zero
+                rs = avg_gain / avg_loss.replace(0, np.nan)
+                rsi = 100 - (100 / (1 + rs))
+                
+                # Fill NaN values at the beginning
+                rsi = rsi.fillna(50)  # Neutral RSI for initial values
+                
+                return rsi
             
-            return rsi
-        
-        return self._get_cached_or_calculate(cache_key, calculate)
+            return self._get_cached_or_calculate(cache_key, calculate)
+            
+        except Exception as e:
+            warnings.warn(f"Error calculating RSI: {e}")
+            # Return neutral RSI values (50)
+            if isinstance(data, list):
+                return pd.Series([50.0] * len(data))
+            else:
+                return pd.Series([50.0] * len(data), index=data.index)
     
     def macd(self, data: Union[pd.Series, list], 
              fast: int = 12, slow: int = 26, signal: int = 9) -> Tuple[pd.Series, pd.Series, pd.Series]:
@@ -117,7 +174,12 @@ class TechnicalIndicators:
     
     def bollinger_bands(self, data: Union[pd.Series, list], 
                        period: int = 20, std_dev: float = 2) -> Tuple[pd.Series, pd.Series, pd.Series]:
-        """Bollinger Bands with caching"""
+        """
+        Enhanced Bollinger Bands with caching
+        
+        Returns:
+            Tuple of (upper_band, middle_band/SMA, lower_band)
+        """
         cache_key = self._get_cache_key(data, "bollinger_bands", period=period, std_dev=std_dev)
         
         def calculate():
@@ -133,6 +195,73 @@ class TechnicalIndicators:
             lower_band = sma - (std * std_dev)
             
             return upper_band, sma, lower_band
+        
+        return self._get_cached_or_calculate(cache_key, calculate)
+    
+    def bollinger_band_width(self, data: Union[pd.Series, list], 
+                            period: int = 20, std_dev: float = 2) -> pd.Series:
+        """
+        Calculate Bollinger Band Width to measure volatility
+        Lower values indicate low volatility (squeeze), higher values indicate high volatility
+        """
+        cache_key = self._get_cache_key(data, "bb_width", period=period, std_dev=std_dev)
+        
+        def calculate():
+            upper, middle, lower = self.bollinger_bands(data, period, std_dev)
+            width = (upper - lower) / middle
+            return width
+        
+        return self._get_cached_or_calculate(cache_key, calculate)
+    
+    def bollinger_squeeze(self, data: Union[pd.Series, list], 
+                         period: int = 20, std_dev: float = 2, 
+                         squeeze_threshold: int = 10) -> pd.Series:
+        """
+        Detect Bollinger Band squeeze conditions
+        
+        Args:
+            squeeze_threshold: Number of periods to look back for minimum bandwidth
+            
+        Returns:
+            Boolean series indicating squeeze conditions
+        """
+        cache_key = self._get_cache_key(data, "bb_squeeze", 
+                                      period=period, std_dev=std_dev, 
+                                      threshold=squeeze_threshold)
+        
+        def calculate():
+            bandwidth = self.bollinger_band_width(data, period, std_dev)
+            
+            # Squeeze when current bandwidth is the lowest in the lookback period
+            rolling_min = bandwidth.rolling(window=squeeze_threshold).min()
+            squeeze = bandwidth == rolling_min
+            
+            return squeeze
+        
+        return self._get_cached_or_calculate(cache_key, calculate)
+    
+    def bollinger_percent_b(self, data: Union[pd.Series, list], 
+                           period: int = 20, std_dev: float = 2) -> pd.Series:
+        """
+        Calculate %B indicator - position of price within Bollinger Bands
+        
+        Returns:
+            Values > 1: Above upper band
+            Values 0-1: Between bands  
+            Values < 0: Below lower band
+        """
+        cache_key = self._get_cache_key(data, "bb_percent_b", period=period, std_dev=std_dev)
+        
+        def calculate():
+            if isinstance(data, list):
+                series_data = pd.Series(data)
+            else:
+                series_data = data
+                
+            upper, middle, lower = self.bollinger_bands(series_data, period, std_dev)
+            percent_b = (series_data - lower) / (upper - lower)
+            
+            return percent_b
         
         return self._get_cached_or_calculate(cache_key, calculate)
     
