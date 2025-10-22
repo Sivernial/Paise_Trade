@@ -1,50 +1,97 @@
 """
 Technical Analysis Library for Algorithmic Trading
-Comprehensive collection of technical indicators and analysis tools
+Comprehensive collection of technical indicators and analysis tools with caching
 """
 
 import pandas as pd
 import numpy as np
-from typing import Union, Tuple, Optional
+from typing import Union, Tuple, Optional, Dict, Any
 import warnings
+import hashlib
+from functools import lru_cache
 
 class TechnicalIndicators:
     """
     Collection of technical indicators for trading analysis
     All methods are optimized for performance and handle edge cases
+    Features intelligent caching to avoid redundant calculations
     """
     
-    @staticmethod
-    def sma(data: Union[pd.Series, list], period: int) -> pd.Series:
-        """Simple Moving Average"""
-        if isinstance(data, list):
-            data = pd.Series(data)
-        return data.rolling(window=period).mean()
+    def __init__(self):
+        self._cache: Dict[str, Any] = {}
     
-    @staticmethod
-    def ema(data: Union[pd.Series, list], period: int) -> pd.Series:
-        """Exponential Moving Average"""
+    def _get_cache_key(self, data: Union[pd.Series, list], method_name: str, **kwargs) -> str:
+        """Generate cache key for data and parameters"""
         if isinstance(data, list):
-            data = pd.Series(data)
-        return data.ewm(span=period).mean()
+            data_hash = hashlib.md5(str(data).encode()).hexdigest()[:8]
+        else:
+            data_hash = hashlib.md5(f"{len(data)}{data.iloc[0] if len(data) > 0 else 0}{data.iloc[-1] if len(data) > 0 else 0}".encode()).hexdigest()[:8]
+        
+        params_str = "_".join([f"{k}_{v}" for k, v in sorted(kwargs.items())])
+        return f"{method_name}_{data_hash}_{params_str}"
     
-    @staticmethod
-    def rsi(data: Union[pd.Series, list], period: int = 14) -> pd.Series:
-        """Relative Strength Index"""
-        if isinstance(data, list):
-            data = pd.Series(data)
+    def _get_cached_or_calculate(self, cache_key: str, calculation_func) -> pd.Series:
+        """Get from cache or calculate and cache the result"""
+        if cache_key in self._cache:
+            return self._cache[cache_key]
         
-        delta = data.diff()
-        gain = delta.where(delta > 0, 0)
-        loss = -delta.where(delta < 0, 0)
+        result = calculation_func()
+        self._cache[cache_key] = result
+        return result
+    
+    def clear_cache(self):
+        """Clear the indicator cache"""
+        self._cache.clear()
+    
+    def sma(self, data: Union[pd.Series, list], period: int) -> pd.Series:
+        """Simple Moving Average with caching"""
+        cache_key = self._get_cache_key(data, "sma", period=period)
         
-        avg_gain = gain.rolling(window=period).mean()
-        avg_loss = loss.rolling(window=period).mean()
+        def calculate():
+            if isinstance(data, list):
+                series_data = pd.Series(data)
+            else:
+                series_data = data
+            return series_data.rolling(window=period).mean()
         
-        rs = avg_gain / avg_loss
-        rsi = 100 - (100 / (1 + rs))
+        return self._get_cached_or_calculate(cache_key, calculate)
+    
+    def ema(self, data: Union[pd.Series, list], period: int) -> pd.Series:
+        """Exponential Moving Average with caching"""
+        cache_key = self._get_cache_key(data, "ema", period=period)
         
-        return rsi
+        def calculate():
+            if isinstance(data, list):
+                series_data = pd.Series(data)
+            else:
+                series_data = data
+            return series_data.ewm(span=period).mean()
+        
+        return self._get_cached_or_calculate(cache_key, calculate)
+    
+    def rsi(self, data: Union[pd.Series, list], period: int = 14) -> pd.Series:
+        """Relative Strength Index with caching"""
+        cache_key = self._get_cache_key(data, "rsi", period=period)
+        
+        def calculate():
+            if isinstance(data, list):
+                series_data = pd.Series(data)
+            else:
+                series_data = data
+            
+            delta = series_data.diff()
+            gain = delta.where(delta > 0, 0)
+            loss = -delta.where(delta < 0, 0)
+            
+            avg_gain = gain.rolling(window=period).mean()
+            avg_loss = loss.rolling(window=period).mean()
+            
+            rs = avg_gain / avg_loss
+            rsi = 100 - (100 / (1 + rs))
+            
+            return rsi
+        
+        return self._get_cached_or_calculate(cache_key, calculate)
     
     @staticmethod
     def macd(data: Union[pd.Series, list], 

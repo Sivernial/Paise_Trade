@@ -11,8 +11,10 @@ import warnings
 
 # Import dataclasses from data_structures
 from data_structures.backtesting_dataclass import (
-    Order, Position, PerformanceMetrics, OrderType, OrderStatus
+    PerformanceMetrics
 )
+from data_structures.common import OrderType, OrderStatus, Position, Order
+from .validation import TradingValidator, ValidationError
 
 class BacktestEngine:
     """
@@ -32,6 +34,12 @@ class BacktestEngine:
                  commission_rate: float = 0.001,
                  slippage_rate: float = 0.0005,
                  max_positions: int = 10):
+        
+        # Validate inputs
+        TradingValidator.validate_capital(initial_capital)
+        TradingValidator.validate_commission_rate(commission_rate)
+        TradingValidator.validate_ratio(slippage_rate, "Slippage rate")
+        TradingValidator.validate_positive_number(max_positions, "Max positions")
         
         self.initial_capital = initial_capital
         self.current_capital = initial_capital
@@ -65,7 +73,7 @@ class BacktestEngine:
     def place_order(self, symbol: str, order_type: OrderType, 
                    quantity: int, price: Optional[float] = None) -> str:
         """
-        Place a trading order
+        Place a trading order with validation
         
         Args:
             symbol: Trading symbol
@@ -76,6 +84,11 @@ class BacktestEngine:
         Returns:
             Order ID
         """
+        # Validate inputs
+        TradingValidator.validate_symbol(symbol)
+        TradingValidator.validate_quantity(quantity)
+        symbol = TradingValidator.sanitize_symbol(symbol)
+        
         if not self.current_date:
             raise ValueError("No current date set for backtesting")
         
@@ -86,6 +99,13 @@ class BacktestEngine:
         if price <= 0:
             warnings.warn(f"Invalid price for {symbol}: {price}")
             return ""
+        
+        # Validate price
+        TradingValidator.validate_price(price)
+        
+        # Check position limits
+        if order_type == OrderType.BUY and len(self.positions) >= self.max_positions:
+            raise ValidationError(f"Maximum positions limit ({self.max_positions}) reached")
         
         # Generate order ID
         order_id = f"{symbol}_{len(self.orders) + 1}_{int(self.current_date.timestamp())}"
@@ -154,7 +174,7 @@ class BacktestEngine:
                     symbol=symbol,
                     quantity=order.quantity,
                     entry_price=order.fill_price,
-                    entry_timestamp=order.fill_timestamp,
+                    entry_date=order.fill_timestamp,
                     current_price=order.fill_price
                 )
         else:
@@ -178,7 +198,7 @@ class BacktestEngine:
                 # Record completed trade
                 completed_trade = {
                     'symbol': symbol,
-                    'entry_date': pos.entry_timestamp,
+                    'entry_date': pos.entry_date,
                     'exit_date': order.fill_timestamp,
                     'entry_price': pos.entry_price,
                     'exit_price': order.fill_price,
@@ -186,7 +206,7 @@ class BacktestEngine:
                     'pnl': trade_pnl,
                     'return': trade_return,
                     'commission': order.commission,
-                    'hold_days': (order.fill_timestamp - pos.entry_timestamp).days,
+                    'hold_days': (order.fill_timestamp - pos.entry_date).days,
                     'is_profitable': trade_pnl > 0
                 }
                 self.completed_trades.append(completed_trade)

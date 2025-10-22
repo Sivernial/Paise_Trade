@@ -10,11 +10,11 @@ from typing import Dict, List, Optional, Any, Tuple
 from datetime import datetime, timedelta
 
 # Import dataclasses from data_structures
-from data_structures.strategy_dataclass import Signal, SignalType
+from data_structures.strategy_dataclass import Signal
+from data_structures.common import SignalType, OrderType
 
 from .technical_analysis import TechnicalIndicators, PatternRecognition, TrendAnalysis
 from .backtesting import BacktestEngine
-from data_structures.backtesting_dataclass import OrderType
 
 class BaseStrategy(ABC):
     """

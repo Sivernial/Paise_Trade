@@ -1,420 +1,229 @@
-# 🚀 Paise Trade - Advanced Algorithmic Trading System
+# 🚀 Paise Trade - Algorithmic Trading System
 
-A comprehensive, production-ready algorithmic trading platform for the Indian stock market using Zerodha Kite Connect API.
+A comprehensive algorithmic trading platform for Indian stock markets using Zerodha Kite API.
 
-## 🌟 Features
-
-### 📊 **Complete Trading Infrastructure**
-
-- **Data Management**: Historical data fetching, real-time feeds, local caching
-- **Backtesting Engine**: Historical simulation with performance metrics
-- **Paper Trading**: Risk-free strategy testing with realistic simulation
-- **Live Trading**: Real trading execution via Zerodha Kite API
-- **Portfolio Management**: Position tracking, P&L calculation, risk management
-
-### 📈 **Technical Analysis**
-
-- **50+ Technical Indicators**: SMA, EMA, RSI, MACD, Bollinger Bands, ATR, ADX, etc.
-- **Pattern Recognition**: Candlestick patterns, chart patterns
-- **Trend Analysis**: Trend detection, support/resistance levels
-- **Volatility Analysis**: Historical volatility, VaR, maximum drawdown
-
-### 🤖 **Strategy Framework**
-
-- **Pre-built Strategies**: Moving average crossover, RSI mean reversion, multi-indicator
-- **Custom Strategy Support**: Easy-to-extend base classes
-- **Signal Generation**: Confidence-based signal system
-- **Strategy Comparison**: Backtest multiple strategies simultaneously
-
-### 🛡️ **Risk Management**
-
-- **Position Sizing**: Risk-based position calculation
-- **Stop Loss/Take Profit**: Automated risk controls
-- **Drawdown Protection**: Daily loss limits
-- **Correlation Analysis**: Portfolio diversification checks
-
-### ⚙️ **Configuration Management**
-
-- **Multiple Profiles**: Conservative, aggressive, custom configurations
-- **Environment Integration**: Load settings from .env files
-- **Dynamic Updates**: Runtime configuration changes
-- **Validation**: Automatic configuration validation
-
-## 🏗️ Architecture
+## 📁 Project Structure
 
 ```
 Paise_Trade/
-├── core/
-│   ├── data_manager.py      # Data fetching and management
-│   ├── technical_analysis.py # Technical indicators library
-│   ├── strategy.py          # Strategy framework and implementations
-│   ├── backtesting.py       # Backtesting engine
-│   ├── portfolio_manager.py # Portfolio and position management
-│   ├── trader.py            # Order execution and trading engine
-│   └── config_manager.py    # Configuration management
-├── config/                  # Configuration files
-├── login.py                 # Zerodha authentication
-├── demo_trading_system.py   # Comprehensive demo
-├── requirements.txt         # Python dependencies
-└── README.md               # This file
+├── 📊 Core Trading System
+│   ├── core/
+│   │   ├── backtesting.py          # Backtesting engine with proper trade matching
+│   │   ├── strategy.py             # Trading strategies (MA, RSI, Bollinger, Multi-indicator)
+│   │   ├── trader.py               # Order execution (paper & live trading)
+│   │   ├── data_manager.py         # Historical data fetching & caching
+│   │   ├── technical_analysis.py   # 50+ technical indicators
+│   │   ├── portfolio_manager.py    # Position tracking & risk management
+│   │   ├── data_stream.py          # Live market data streaming
+│   │   └── config_manager.py       # Configuration management
+│   │
+│   ├── data_structures/
+│   │   ├── backtesting_dataclass.py    # Backtest data classes
+│   │   ├── trading_dataclass.py        # Trading data classes
+│   │   ├── strategy_dataclass.py       # Strategy data classes
+│   │   ├── portfolio_dataclass.py      # Portfolio data classes
+│   │   └── config_dataclass.py         # Configuration data classes
+│   │
+├── 🎯 Main Applications
+│   ├── interactive_backtest.py     # Interactive backtesting tool
+│   ├── paper_and_live_trading.py   # Paper & live trading interface
+│   ├── quick_start.py              # Getting started guide
+│   └── login.py                    # Zerodha authentication helper
+│   │
+├── 📋 Configuration
+│   ├── .env                        # API credentials (not in git)
+│   ├── access_token.txt            # Zerodha access token (not in git)
+│   ├── requirements.txt            # Python dependencies
+│   └── .gitignore                  # Git ignore patterns
+│   │
+└── 📚 Documentation
+    └── README.md                   # This file
 ```
 
 ## 🚀 Quick Start
 
-### 1. **Setup Environment**
-
+### 1. Installation
 ```bash
 # Clone the repository
-git clone <repository_url>
+git clone <your-repo-url>
 cd Paise_Trade
-
-# Create virtual environment
-python -m venv venv
-source venv/bin/activate  # On Windows: venv\Scripts\activate
 
 # Install dependencies
 pip install -r requirements.txt
 ```
 
-### 2. **Configure API Credentials**
-
-Create a `.env` file in the project root:
-
+### 2. Setup Zerodha API Credentials
+Create a `.env` file with your Zerodha credentials:
 ```env
 API_KEY=your_zerodha_api_key
-API_SECRET=your_zerodha_api_secret
-REDIRECT_URL=http://127.0.0.1:8000
-INITIAL_CAPITAL=100000
-PAPER_TRADING=true
-LOG_LEVEL=INFO
+ACCESS_TOKEN=your_access_token
 ```
 
-### 3. **Authenticate with Zerodha**
+### 3. Choose Your Tool
 
+#### 📊 **Interactive Backtesting**
+Test strategies on historical data:
 ```bash
-# Get access token
-python login.py
+python interactive_backtest.py
 ```
+- Choose from 15+ Indian stocks
+- 4 built-in strategies (MA Crossover, RSI, Bollinger Bands, Multi-indicator)
+- Multiple timeframes (1min to daily)
+- Customizable parameters
+- Comprehensive performance analysis
 
-### 4. **Run Demo**
-
+#### 📈 **Paper & Live Trading**
+Run strategies with real-time data:
 ```bash
-# Run comprehensive demo
-python demo_trading_system.py
+python paper_and_live_trading.py
 ```
-
-## 📖 Usage Examples
-
-### **Simple Backtesting**
-
-```python
-from core.backtesting import BacktestEngine
-from core.data_manager import DataManager
-from core.strategy import MovingAverageCrossoverStrategy
-
-# Initialize components
-data_manager = DataManager(kite)
-strategy = MovingAverageCrossoverStrategy()
-backtest = BacktestEngine(initial_capital=1000000)
-
-# Get historical data
-data = data_manager.get_multiple_symbols_data(
-    symbols=['RELIANCE', 'INFY'],
-    days_back=365
-)
-
-# Run backtest
-results = backtest.run_backtest(data)
-
-# Print results
-backtest.print_performance_summary(results['performance_metrics'])
-```
-
-### **Paper Trading**
-
-```python
-from core.trader import TradingEngine
-from core.strategy import RSIMeanReversionStrategy
-
-# Initialize paper trading
-trader = TradingEngine(paper_trading=True, initial_capital=500000)
-strategy = RSIMeanReversionStrategy()
-
-# Update market prices
-trader.update_market_prices({'RELIANCE': 2450.75, 'INFY': 1520.30})
-
-# Place orders
-order_id = trader.buy('RELIANCE', 100, 2450.75)
-print(f"Order placed: {order_id}")
-
-# Check positions
-positions = trader.get_positions()
-print(positions)
-```
-
-### **Portfolio Management**
-
-```python
-from core.portfolio_manager import PortfolioManager, PositionType
-
-# Initialize portfolio
-portfolio = PortfolioManager(initial_capital=1000000)
-
-# Add positions
-portfolio.add_position(
-    symbol='RELIANCE',
-    quantity=100,
-    entry_price=2450.0,
-    position_type=PositionType.LONG,
-    stop_loss=2327.5,  # 5% stop loss
-    take_profit=2817.5  # 15% take profit
-)
-
-# Update prices
-portfolio.update_prices({'RELIANCE': 2478.25})
-
-# Check performance
-portfolio.print_portfolio_summary()
-```
-
-### **Technical Analysis**
-
-```python
-from core.technical_analysis import TechnicalIndicators
-import pandas as pd
-
-# Initialize technical analysis
-ta = TechnicalIndicators()
-
-# Calculate indicators
-rsi = ta.rsi(data['close'], period=14)
-sma_20 = ta.sma(data['close'], period=20)
-bb_upper, bb_middle, bb_lower = ta.bollinger_bands(data['close'])
-
-# MACD
-macd, signal, histogram = ta.macd(data['close'])
-
-print(f"Current RSI: {rsi.iloc[-1]:.2f}")
-print(f"Current SMA(20): {sma_20.iloc[-1]:.2f}")
-```
-
-### **Custom Strategy**
-
-```python
-from core.strategy import BaseStrategy, Signal, SignalType
-
-class MyCustomStrategy(BaseStrategy):
-    def generate_signals(self, data, current_date):
-        signals = []
-
-        for symbol, df in data.items():
-            if len(df) < 20:
-                continue
-
-            # Calculate your indicators
-            rsi = self.ta.rsi(df['close'], 14)
-            sma = self.ta.sma(df['close'], 20)
-
-            current_price = df['close'].iloc[-1]
-            current_rsi = rsi.iloc[-1]
-
-            # Your trading logic
-            if current_rsi < 30 and current_price > sma.iloc[-1]:
-                signal = Signal(
-                    symbol=symbol,
-                    signal_type=SignalType.BUY,
-                    confidence=0.8,
-                    price=current_price,
-                    timestamp=current_date,
-                    reason="RSI oversold with price above SMA"
-                )
-                signals.append(signal)
-
-        return signals
-
-# Use your strategy
-strategy = MyCustomStrategy()
-```
-
-## 📊 Strategy Library
-
-### **Built-in Strategies**
-
-1. **Moving Average Crossover**
-
-   - Buy when fast MA crosses above slow MA
-   - Sell when fast MA crosses below slow MA
-   - Configurable periods (default: 10/20)
-
-2. **RSI Mean Reversion**
-
-   - Buy when RSI < 30 (oversold)
-   - Sell when RSI > 70 (overbought)
-   - Configurable thresholds
-
-3. **Bollinger Band Strategy**
-
-   - Reversal: Buy at lower band, sell at upper band
-   - Breakout: Buy above upper band, sell below lower band
-   - Configurable periods and standard deviations
-
-4. **Multi-Indicator Strategy**
-   - Combines multiple indicators
-   - Weighted signal confidence
-   - Reduces false signals
-
-### **Performance Metrics**
-
-- **Returns**: Total return, annualized return
-- **Risk Metrics**: Sharpe ratio, Sortino ratio, Calmar ratio
-- **Drawdown**: Maximum drawdown, current drawdown
-- **Trade Analysis**: Win rate, profit factor, average trade
-- **Volatility**: Historical volatility, VaR
-
-## 🛡️ Risk Management
-
-### **Position Sizing**
-
-- Risk-based position calculation
-- Maximum position size limits
-- Portfolio diversification checks
-
-### **Stop Loss & Take Profit**
-
-- Automatic stop loss execution
-- Trailing stop loss support
-- Configurable profit targets
-
-### **Daily Limits**
-
-- Maximum daily loss protection
-- Order count limitations
-- Exposure limits
-
-## ⚙️ Configuration
-
-### **Trading Configuration**
-
-```python
-from core.config_manager import get_config
-
-config = get_config()
-
-# Update settings
-config.trading.max_position_size_pct = 0.1  # 10% max per position
-config.trading.stop_loss_pct = 0.05         # 5% stop loss
-config.save_configurations()
-```
-
-### **Strategy Parameters**
-
-```python
-# RSI strategy configuration
-config.strategy.rsi_period = 14
-config.strategy.rsi_oversold = 25
-config.strategy.rsi_overbought = 75
-
-# Moving average configuration
-config.strategy.ma_fast_period = 8
-config.strategy.ma_slow_period = 21
-```
-
-### **Configuration Profiles**
-
-```python
-# Create profiles for different risk levels
-config.create_profile('conservative')
-config.create_profile('aggressive')
-
-# Load a profile
-config.load_profile('conservative')
-```
-
-## 📈 Backtesting
-
-### **Historical Data**
-
-- Automatic data fetching from Zerodha API
-- Local caching for performance
-- Multiple timeframes support
-- Data cleaning and validation
-
-### **Simulation Engine**
-
-- Realistic order execution
-- Commission and slippage modeling
-- Position tracking
-- Performance calculation
-
-### **Results Analysis**
-
-- Comprehensive performance metrics
-- Trade-by-trade analysis
-- Equity curve generation
-- Drawdown analysis
-
-## 🔴 Live Trading
-
-### **Paper Trading**
-
-- Risk-free strategy testing
-- Realistic market simulation
-- Portfolio tracking
-- Performance monitoring
-
-### **Live Trading**
-
-- Real order execution via Zerodha
-- Order management and tracking
-- Risk controls and limits
-- Real-time monitoring
-
-## 🔧 Installation & Dependencies
-
-### **System Requirements**
-
-- Python 3.8+
-- Internet connection for API access
-- Minimum 4GB RAM
-- 1GB free disk space
-
-### **Python Packages**
-
+- **Paper Trading**: Risk-free testing with simulated trades
+- **Live Trading**: Real money trading (use with caution!)
+- Real-time signal generation
+- Multiple stock monitoring
+- Interactive strategy selection
+
+#### 🎯 **Quick Start Guide**
+New to the system? Start here:
 ```bash
-pip install pandas numpy scipy matplotlib seaborn
-pip install kiteconnect python-dotenv flask
-pip install scikit-learn ta-lib finta
+python quick_start.py
 ```
 
-### **Optional Packages**
+## 🛠️ Available Trading Strategies
 
-```bash
-pip install plotly jupyter notebook  # For advanced analysis
-pip install streamlit dash           # For web interface
+### 1. **Moving Average Crossover**
+- **Signal**: Buy when fast MA crosses above slow MA
+- **Parameters**: Fast period (default: 10), Slow period (default: 20)
+- **Best for**: Trend following
+
+### 2. **RSI Mean Reversion**
+- **Signal**: Buy when RSI < 30 (oversold), Sell when RSI > 70 (overbought)
+- **Parameters**: RSI period (default: 14), thresholds
+- **Best for**: Range-bound markets
+
+### 3. **Bollinger Band Strategy**
+- **Signal**: Buy at lower band, sell at upper band (reversal) or breakouts
+- **Parameters**: Period (default: 20), Standard deviations (default: 2)
+- **Best for**: Volatility-based trading
+
+### 4. **Multi-Indicator Strategy**
+- **Signal**: Combines MA, RSI, and BB for robust signals
+- **Parameters**: Customizable for all indicators
+- **Best for**: Comprehensive analysis
+
+## 📊 Features
+
+### ✅ **Backtesting Engine**
+- **Accurate Trade Matching**: Proper buy/sell pair tracking
+- **Realistic Costs**: Commission and slippage modeling
+- **Performance Metrics**: Sharpe ratio, win rate, drawdown, profit factor
+- **Trade Analysis**: Individual trade P&L, hold times, best/worst trades
+
+### ✅ **Live Trading System**
+- **Paper Trading**: Safe testing environment
+- **Live Trading**: Real order execution via Zerodha
+- **Risk Management**: Position sizing, daily limits
+- **Real-time Monitoring**: Live price updates and signal generation
+
+### ✅ **Data Management**
+- **Historical Data**: Fetch from Zerodha API with intelligent caching
+- **Multiple Timeframes**: 1min to daily data
+- **Data Quality**: Automatic cleaning and validation
+- **Offline Support**: SQLite database for cached data
+
+### ✅ **Technical Analysis**
+- **50+ Indicators**: SMA, EMA, RSI, MACD, Bollinger Bands, ATR, ADX, etc.
+- **Pattern Recognition**: Support/resistance, trend analysis
+- **Custom Indicators**: Easy to add new technical indicators
+
+## 📈 Example Usage
+
+### Backtesting Example
+```python
+# Run interactive backtesting
+python interactive_backtest.py
+
+# Choose:
+# 1. Stock: RELIANCE
+# 2. Strategy: Moving Average Crossover (10/20)
+# 3. Timeframe: 15 minute
+# 4. Period: Last 2 months
+# 5. Capital: ₹1,00,000
+
+# Results:
+# Total Return: 8.45%
+# Win Rate: 62.5%
+# Sharpe Ratio: 0.676
+# Max Drawdown: -5.67%
 ```
 
-## 🤝 Contributing
+### Live Trading Example
+```python
+# Run paper trading
+python paper_and_live_trading.py
 
-1. Fork the repository
-2. Create a feature branch
-3. Implement your changes
-4. Add tests
-5. Submit a pull request
+# Choose:
+# 1. Strategy: RSI Mean Reversion
+# 2. Stocks: RELIANCE, TCS
+# 3. Mode: Paper Trading (safe)
 
-## ⚠️ Disclaimer
+# Output:
+# 🔔 SIGNAL: BUY RELIANCE @ ₹2,545.30
+# 💡 Reason: RSI oversold (28.5)
+# 📝 Paper Trade: BUY 39 RELIANCE
+```
 
-**This software is for educational and research purposes only. Trading in financial markets involves substantial risk of loss. Past performance does not guarantee future results. Always do your own research and consider consulting with a financial advisor before making investment decisions.**
+## ⚠️ Important Notes
+
+### **Safety First**
+- **Always start with paper trading** to test strategies
+- **Use small position sizes** when going live
+- **Set proper risk limits** before live trading
+- **Monitor trades closely** during market hours
+
+### **API Limitations**
+- Zerodha access tokens expire daily
+- Rate limits apply to API calls
+- Market data is available only during trading hours
+
+### **Risk Disclaimer**
+- **Past performance doesn't guarantee future results**
+- **Trading involves significant risk of loss**
+- **Only trade with money you can afford to lose**
+- **This is for educational purposes**
+
+## 🔧 Development
+
+### Adding New Strategies
+1. Create strategy class inheriting from `BaseStrategy`
+2. Implement `generate_signals()` method
+3. Add to available strategies in applications
+
+### Custom Indicators
+1. Add indicator function to `TechnicalAnalysis` class
+2. Use in strategy signal generation logic
+
+### Database Schema
+The system uses SQLite for caching:
+- `historical_data`: OHLCV data with timestamps
+- `trades`: Executed trade records
+- `performance`: Strategy performance metrics
 
 ## 📞 Support
 
-- **Documentation**: Check the code comments and docstrings
-- **Issues**: Open an issue on GitHub
-- **Discussions**: Use GitHub discussions for questions
+For issues and questions:
+1. Check the code comments for detailed explanations
+2. Review the example outputs in each module
+3. Start with paper trading to understand the system
 
-## 📄 License
+## 🎯 Roadmap
 
-This project is licensed under the MIT License - see the LICENSE file for details.
+- [ ] Web dashboard for monitoring
+- [ ] More advanced strategies
+- [ ] Options trading support
+- [ ] Multi-asset portfolio optimization
+- [ ] Machine learning integration
 
 ---
 
-**Happy Trading! 🚀📈**
+**Happy Trading! 📈**
