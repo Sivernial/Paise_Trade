@@ -169,6 +169,7 @@ class TradingEngine:
             price=price,
             order_type=order_type,
             product_type=product_type,
+            timestamp=datetime.now(),
             tag=tag
         )
         
