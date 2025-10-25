@@ -20,6 +20,7 @@ from strategies import (
     BollingerBandStrategy,
     MultiIndicatorStrategy
 )
+from strategies.adaptive_momentum_breakout import AdaptiveMomentumBreakoutStrategy
 from data_structures.backtesting_dataclass import OrderType
 
 # Common Indian stock instrument tokens (you can add more)
@@ -65,6 +66,12 @@ AVAILABLE_STRATEGIES = {
         'class': MultiIndicatorStrategy,
         'description': 'Combines multiple indicators for signals',
         'params': ['ma_fast', 'ma_slow', 'rsi_period', 'bb_period']
+    },
+    '5': {
+        'name': 'Adaptive Momentum Breakout',
+        'class': AdaptiveMomentumBreakoutStrategy,
+        'description': '🚀 Advanced intraday strategy with VWAP, SuperTrend, Volume Profile',
+        'params': ['min_confidence', 'vwap_deviation_threshold', 'supertrend_multiplier', 'rsi_oversold', 'rsi_overbought']
     }
 }
 
@@ -217,6 +224,17 @@ def get_user_inputs():
         strategy_params['ma_slow'] = get_int_input("Slow MA period (default 20): ", 20)
         strategy_params['rsi_period'] = get_int_input("RSI period (default 14): ", 14)
         strategy_params['bb_period'] = get_int_input("BB period (default 20): ", 20)
+    
+    elif selected_strategy['name'] == 'Adaptive Momentum Breakout':
+        print("🚀 Configure Adaptive Momentum Breakout parameters:")
+        print("   (Advanced intraday strategy with multiple indicators)")
+        strategy_params['min_confidence'] = get_float_input("Minimum confidence threshold (default 0.65): ", 0.65)
+        strategy_params['vwap_deviation_threshold'] = get_float_input("VWAP deviation threshold (default 0.008): ", 0.008)
+        strategy_params['supertrend_multiplier'] = get_float_input("SuperTrend multiplier (default 2.5): ", 2.5)
+        strategy_params['rsi_oversold'] = get_float_input("RSI oversold level (default 35): ", 35)
+        strategy_params['rsi_overbought'] = get_float_input("RSI overbought level (default 65): ", 65)
+        strategy_params['atr_multiplier'] = get_float_input("ATR risk multiplier (default 2.0): ", 2.0)
+        strategy_params['volume_spike_threshold'] = get_float_input("Volume spike threshold (default 1.3): ", 1.3)
     
     # Step 6: Backtesting Parameters
     print(f"\n💰 STEP 6: Backtesting Parameters")

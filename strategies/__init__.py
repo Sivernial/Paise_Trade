@@ -23,13 +23,15 @@ from .moving_average_crossover import MovingAverageCrossoverStrategy
 from .rsi_mean_reversion import RSIMeanReversionStrategy
 from .bollinger_band import BollingerBandStrategy
 from .multi_indicator import MultiIndicatorStrategy
+from .adaptive_momentum_breakout import AdaptiveMomentumBreakoutStrategy
 
 __all__ = [
     'BaseStrategy',
     'MovingAverageCrossoverStrategy',
     'RSIMeanReversionStrategy', 
     'BollingerBandStrategy',
-    'MultiIndicatorStrategy'
+    'MultiIndicatorStrategy',
+    'AdaptiveMomentumBreakoutStrategy'
 ]
 
 # Strategy registry for easy access
@@ -37,7 +39,8 @@ STRATEGY_REGISTRY = {
     'ma_crossover': MovingAverageCrossoverStrategy,
     'rsi_mean_reversion': RSIMeanReversionStrategy,
     'bollinger_band': BollingerBandStrategy,
-    'multi_indicator': MultiIndicatorStrategy
+    'multi_indicator': MultiIndicatorStrategy,
+    'adaptive_momentum_breakout': AdaptiveMomentumBreakoutStrategy
 }
 
 def get_strategy(strategy_name: str, **kwargs):
