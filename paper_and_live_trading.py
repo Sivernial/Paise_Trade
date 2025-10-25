@@ -7,7 +7,7 @@ import os
 from dotenv import load_dotenv
 from kiteconnect import KiteConnect
 from core.data_stream import LiveDataStreamer
-from core.strategy import (
+from strategies import (
     MovingAverageCrossoverStrategy, 
     RSIMeanReversionStrategy, 
     BollingerBandStrategy,

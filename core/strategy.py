@@ -13,7 +13,7 @@ from datetime import datetime, timedelta
 from data_structures.strategy_dataclass import Signal
 from data_structures.common import SignalType, OrderType
 
-from .technical_analysis import TechnicalIndicators, PatternRecognition, TrendAnalysis
+from technical_indicators import TechnicalIndicators, PatternRecognition, TrendAnalysis
 from .backtesting import BacktestEngine
 
 class BaseStrategy(ABC):

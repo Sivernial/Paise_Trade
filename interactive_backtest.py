@@ -14,7 +14,7 @@ sys.path.append('core')
 
 from kiteconnect import KiteConnect
 from core.backtesting import BacktestEngine
-from core.strategy import (
+from strategies import (
     MovingAverageCrossoverStrategy, 
     RSIMeanReversionStrategy, 
     BollingerBandStrategy,
