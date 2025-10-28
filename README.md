@@ -43,6 +43,7 @@ Paise_Trade/
 ## 🚀 Quick Start
 
 ### 1. Installation
+
 ```bash
 # Clone the repository
 git clone <your-repo-url>
@@ -53,7 +54,9 @@ pip install -r requirements.txt
 ```
 
 ### 2. Setup Zerodha API Credentials
+
 Create a `.env` file with your Zerodha credentials:
+
 ```env
 API_KEY=your_zerodha_api_key
 ACCESS_TOKEN=your_access_token
@@ -62,10 +65,13 @@ ACCESS_TOKEN=your_access_token
 ### 3. Choose Your Tool
 
 #### 📊 **Interactive Backtesting**
+
 Test strategies on historical data:
+
 ```bash
 python interactive_backtest.py
 ```
+
 - Choose from 15+ Indian stocks
 - 4 built-in strategies (MA Crossover, RSI, Bollinger Bands, Multi-indicator)
 - Multiple timeframes (1min to daily)
@@ -73,10 +79,13 @@ python interactive_backtest.py
 - Comprehensive performance analysis
 
 #### 📈 **Paper & Live Trading**
+
 Run strategies with real-time data:
+
 ```bash
 python paper_and_live_trading.py
 ```
+
 - **Paper Trading**: Risk-free testing with simulated trades
 - **Live Trading**: Real money trading (use with caution!)
 - Real-time signal generation
@@ -84,7 +93,9 @@ python paper_and_live_trading.py
 - Interactive strategy selection
 
 #### 🎯 **Quick Start Guide**
+
 New to the system? Start here:
+
 ```bash
 python quick_start.py
 ```
@@ -92,21 +103,25 @@ python quick_start.py
 ## 🛠️ Available Trading Strategies
 
 ### 1. **Moving Average Crossover**
+
 - **Signal**: Buy when fast MA crosses above slow MA
 - **Parameters**: Fast period (default: 10), Slow period (default: 20)
 - **Best for**: Trend following
 
 ### 2. **RSI Mean Reversion**
+
 - **Signal**: Buy when RSI < 30 (oversold), Sell when RSI > 70 (overbought)
 - **Parameters**: RSI period (default: 14), thresholds
 - **Best for**: Range-bound markets
 
 ### 3. **Bollinger Band Strategy**
+
 - **Signal**: Buy at lower band, sell at upper band (reversal) or breakouts
 - **Parameters**: Period (default: 20), Standard deviations (default: 2)
 - **Best for**: Volatility-based trading
 
 ### 4. **Multi-Indicator Strategy**
+
 - **Signal**: Combines MA, RSI, and BB for robust signals
 - **Parameters**: Customizable for all indicators
 - **Best for**: Comprehensive analysis
@@ -114,24 +129,28 @@ python quick_start.py
 ## 📊 Features
 
 ### ✅ **Backtesting Engine**
+
 - **Accurate Trade Matching**: Proper buy/sell pair tracking
 - **Realistic Costs**: Commission and slippage modeling
 - **Performance Metrics**: Sharpe ratio, win rate, drawdown, profit factor
 - **Trade Analysis**: Individual trade P&L, hold times, best/worst trades
 
 ### ✅ **Live Trading System**
+
 - **Paper Trading**: Safe testing environment
 - **Live Trading**: Real order execution via Zerodha
 - **Risk Management**: Position sizing, daily limits
 - **Real-time Monitoring**: Live price updates and signal generation
 
 ### ✅ **Data Management**
+
 - **Historical Data**: Fetch from Zerodha API with intelligent caching
 - **Multiple Timeframes**: 1min to daily data
 - **Data Quality**: Automatic cleaning and validation
 - **Offline Support**: SQLite database for cached data
 
 ### ✅ **Technical Analysis**
+
 - **50+ Indicators**: SMA, EMA, RSI, MACD, Bollinger Bands, ATR, ADX, etc.
 - **Pattern Recognition**: Support/resistance, trend analysis
 - **Custom Indicators**: Easy to add new technical indicators
@@ -139,7 +158,8 @@ python quick_start.py
 ## 📈 Example Usage
 
 ### Backtesting Example
-```python
+
+````python
 # Run interactive backtesting
 python interactive_backtest.py
 
@@ -155,7 +175,52 @@ python interactive_backtest.py
 # Win Rate: 62.5%
 # Sharpe Ratio: 0.676
 # Max Drawdown: -5.67%
-```
+
+### Visualization
+
+You can generate plots (equity curve, drawdown, portfolio components, trade distributions, and per-symbol price with trade markers) directly from the backtest run.
+
+Example:
+
+```python
+from core.backtesting import BacktestEngine
+from strategies.base_strategy import MovingAverageCrossoverStrategy
+
+# Assume `price_data` is a dict mapping symbol -> OHLCV DataFrame indexed by datetime.
+
+engine = BacktestEngine(initial_capital=100000)
+
+strategy = MovingAverageCrossoverStrategy(params={
+    'fast_period': 10,
+    'slow_period': 20
+})
+
+def strategy_runner(data_slice, engine_ref, current_date):
+    # Build signals and place orders
+    signals = strategy.generate_signals(data_slice, current_date)
+    for sig in signals:
+        qty = strategy.calculate_position_size(sig.symbol, sig.price)
+        if sig.signal_type.value == 'BUY':
+            engine_ref.place_order(sig.symbol, order_type=OrderType.BUY, quantity=qty, price=sig.price)
+        elif sig.signal_type.value == 'SELL':
+            engine_ref.place_order(sig.symbol, order_type=OrderType.SELL, quantity=qty, price=sig.price)
+
+engine.set_strategy(strategy_runner)
+results = engine.run_backtest(
+    price_data,
+    generate_plots=True,
+    plot_output_dir='plots',
+    max_plot_symbols=5
+)
+
+print('Generated plots:', results['plot_files'])
+````
+
+All plots are saved into the specified `plot_output_dir`. Use these images to visually inspect equity progression, drawdowns, trade efficacy, and indicator behavior.
+
+If running in a headless environment (CI server, remote SSH), plots are still produced using the Agg backend.
+
+````
 
 ### Live Trading Example
 ```python
@@ -171,22 +236,25 @@ python paper_and_live_trading.py
 # 🔔 SIGNAL: BUY RELIANCE @ ₹2,545.30
 # 💡 Reason: RSI oversold (28.5)
 # 📝 Paper Trade: BUY 39 RELIANCE
-```
+````
 
 ## ⚠️ Important Notes
 
 ### **Safety First**
+
 - **Always start with paper trading** to test strategies
 - **Use small position sizes** when going live
 - **Set proper risk limits** before live trading
 - **Monitor trades closely** during market hours
 
 ### **API Limitations**
+
 - Zerodha access tokens expire daily
 - Rate limits apply to API calls
 - Market data is available only during trading hours
 
 ### **Risk Disclaimer**
+
 - **Past performance doesn't guarantee future results**
 - **Trading involves significant risk of loss**
 - **Only trade with money you can afford to lose**
@@ -195,16 +263,20 @@ python paper_and_live_trading.py
 ## 🔧 Development
 
 ### Adding New Strategies
+
 1. Create strategy class inheriting from `BaseStrategy`
 2. Implement `generate_signals()` method
 3. Add to available strategies in applications
 
 ### Custom Indicators
+
 1. Add indicator function to `TechnicalAnalysis` class
 2. Use in strategy signal generation logic
 
 ### Database Schema
+
 The system uses SQLite for caching:
+
 - `historical_data`: OHLCV data with timestamps
 - `trades`: Executed trade records
 - `performance`: Strategy performance metrics
@@ -212,6 +284,7 @@ The system uses SQLite for caching:
 ## 📞 Support
 
 For issues and questions:
+
 1. Check the code comments for detailed explanations
 2. Review the example outputs in each module
 3. Start with paper trading to understand the system

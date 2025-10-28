@@ -2,6 +2,7 @@
 .env
 access_token.txt
 cache
+plots/
 # Database files
 *.db
 *.sqlite

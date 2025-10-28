@@ -36,6 +36,9 @@ class BaseStrategy(ABC):
         self.positions: Dict[str, int] = {}
         self.signals: List[Signal] = []
         self.indicators_cache: Dict[str, Dict] = {}
+        # Maintain per-symbol indicator history for visualization
+        # Structure: { symbol: { indicator_name: [ (timestamp, value), ... ] } }
+        self.indicator_history: Dict[str, Dict[str, List[Tuple[Any, float]]]] = {}
         
         # Performance tracking
         self.total_signals = 0
@@ -133,8 +136,17 @@ class BaseStrategy(ABC):
             if len(data) >= 14:
                 indicators['atr'] = self.ta.atr(data['high'], data['low'], data['close'])
             
-            # Cache indicators
-            self.indicators_cache[symbol] = {k: v.iloc[-1] if len(v) > 0 else 0 for k, v in indicators.items()}
+            # Cache indicators (latest values)
+            latest_indicator_values = {k: v.iloc[-1] if len(v) > 0 else 0 for k, v in indicators.items()}
+            self.indicators_cache[symbol] = latest_indicator_values
+
+            # Append to history for visualization purposes
+            ts = data.index[-1] if hasattr(data, 'index') and len(data.index) > 0 else None
+            if ts is not None:
+                sym_hist = self.indicator_history.setdefault(symbol, {})
+                for name, value in latest_indicator_values.items():
+                    series_hist = sym_hist.setdefault(name, [])
+                    series_hist.append((ts, float(value)))
             
         except Exception as e:
             print(f"⚠️ Error calculating indicators for {symbol}: {e}")
@@ -196,5 +208,6 @@ class BaseStrategy(ABC):
             'total_signals': self.total_signals,
             'profitable_signals': self.profitable_signals,
             'win_rate': win_rate,
-            'recent_signals': self.signals[-10:] if len(self.signals) >= 10 else self.signals
+            'recent_signals': self.signals[-10:] if len(self.signals) >= 10 else self.signals,
+            'indicator_history': self.indicator_history
         }
