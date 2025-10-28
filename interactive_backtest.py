@@ -319,100 +319,74 @@ def setup_kite_connection():
     
     print(f"✅ Kite connection established")
     return kite
-    """
-    Setup Zerodha Kite connection using API credentials
-    Make sure you have your API key and access token ready
-    """
     
-    # Read API credentials (make sure these are in your .env file or set them directly)
-    try:
-        with open('.env', 'r') as f:
-            env_vars = {}
-            for line in f:
-                if '=' in line and not line.startswith('#'):
-                    key, value = line.strip().split('=', 1)
-                    env_vars[key] = value.strip('"').strip("'")
-        
-        api_key = env_vars.get('API_KEY')
-        access_token = env_vars.get('ACCESS_TOKEN')
-        
-    except FileNotFoundError:
-        print("⚠️ .env file not found. Please set API credentials manually:")
-        api_key = input("Enter your Zerodha API Key: ")
-        access_token = input("Enter your Access Token: ")
-    
-    if not api_key or not access_token:
-        print("❌ API credentials not found!")
-        print("💡 Please set API_KEY and ACCESS_TOKEN in .env file")
-        return None
-    
-    # Initialize Kite Connect
-    kite = KiteConnect(api_key=api_key)
-    kite.set_access_token(access_token)
-    
-    print(f"✅ Kite connection established")
-    return kite
 
 def fetch_historical_data(kite, symbol, instrument_token, days_back=60, interval="15minute"):
     """
-    Fetch historical data from Zerodha
-    
-    Args:
-        kite: KiteConnect instance
-        symbol: Stock symbol (for display)
-        instrument_token: Zerodha instrument token
-        days_back: Number of days to look back (default: 60 for ~2 months)
-        interval: Data interval (15minute, day, hour, etc.)
-    
-    Returns:
-        pandas DataFrame with OHLCV data
+    Fetch historical data from Zerodha in chunks to respect API interval limits.
+    Intraday (minute/hour) is capped at ~60 days per call.
     """
-    
     print(f"📊 Fetching {symbol} historical data...")
     print(f"📅 Period: Last {days_back} days")
     print(f"⏰ Timeframe: {interval}")
-    
-    # Calculate date range
+
+    # Per-interval max window (days). Adjust if your API plan differs.
+    intraday_intervals = {'minute', '3minute', '5minute', '10minute', '15minute', '30minute', 'hour'}
+    max_window_days = 60 if interval in intraday_intervals else 3650  # ~10 years for 'day'
+
     to_date = datetime.now()
     from_date = to_date - timedelta(days=days_back)
-    
-    try:
-        # Fetch historical data from Zerodha
-        historical_data = kite.historical_data(
-            instrument_token=instrument_token,
-            from_date=from_date,
-            to_date=to_date,
-            interval=interval
-        )
-        
-        # Convert to DataFrame
-        df = pd.DataFrame(historical_data)
-        
-        if df.empty:
-            print(f"❌ No data received for {symbol}")
-            return None
-        
-        # Process data
-        df['date'] = pd.to_datetime(df['date'])
-        df.set_index('date', inplace=True)
-        
-        # Standardize column names
-        df.columns = ['open', 'high', 'low', 'close', 'volume']
-        
-        print(f"✅ Data fetched successfully!")
-        print(f"📈 Records: {len(df)}")
-        print(f"📅 Date range: {df.index[0]} to {df.index[-1]}")
-        print(f"💰 Price range: ₹{df['close'].min():.2f} - ₹{df['close'].max():.2f}")
-        
-        # Show sample data
-        print(f"\n📋 Sample data (last 5 records):")
-        print(df.tail().round(2))
-        
-        return df
-        
-    except Exception as e:
-        print(f"❌ Error fetching data: {e}")
+
+    all_frames = []
+    cur_to = to_date
+
+    while cur_to > from_date:
+        window_from = max(from_date, cur_to - timedelta(days=max_window_days - 1))
+
+        try:
+            historical_data = kite.historical_data(
+                instrument_token=instrument_token,
+                from_date=window_from,
+                to_date=cur_to,
+                interval=interval
+            )
+        except Exception as e:
+            print(f"❌ Error fetching chunk {window_from.date()} -> {cur_to.date()}: {e}")
+            break
+
+        df_chunk = pd.DataFrame(historical_data)
+        if df_chunk.empty:
+            # No more data returned—stop
+            break
+
+        # Normalize
+        df_chunk['date'] = pd.to_datetime(df_chunk['date'])
+        all_frames.append(df_chunk)
+
+        # Move to previous window (leave a 1-day gap to avoid overlap)
+        cur_to = window_from - timedelta(days=1)
+
+    if not all_frames:
+        print(f"❌ No data received for {symbol}")
         return None
+
+    # Concatenate and clean
+    df = pd.concat(all_frames, ignore_index=True)
+    df.drop_duplicates(subset=['date'], inplace=True)
+    df.sort_values('date', inplace=True)
+    df.set_index('date', inplace=True)
+
+    # Standardize column names to match the rest of the code
+    df.columns = ['open', 'high', 'low', 'close', 'volume']
+
+    print(f"✅ Data fetched successfully!")
+    print(f"📈 Records: {len(df)}")
+    print(f"📅 Date range: {df.index[0]} to {df.index[-1]}")
+    print(f"💰 Price range: ₹{df['close'].min():.2f} - ₹{df['close'].max():.2f}")
+    print(f"\n📋 Sample data (last 5 records):")
+    print(df.tail().round(2))
+
+    return df
 
 def create_strategy_function(strategy_config, position_size_pct=0.5):
     """
@@ -652,72 +626,45 @@ def main():
     """
     Main function to run interactive strategy backtesting
     """
-    
     print(f"🎯 INTERACTIVE STRATEGY BACKTESTING TOOL")
     print(f"Choose your stock, strategy, and parameters interactively!")
     print(f"=" * 60)
-    
+
     # Step 1: Get user inputs
     config = get_user_inputs()
-    
+
     # Step 2: Setup Zerodha connection
     print(f"\n📡 CONNECTING TO ZERODHA API")
     print("-" * 40)
     kite = setup_kite_connection()
-    
     if not kite:
         print(f"❌ Failed to connect to Zerodha. Exiting...")
-        return
-    
+        return (None, None)
+
     # Step 3: Fetch historical data
     print(f"\n📊 FETCHING HISTORICAL DATA")
     print("-" * 40)
     historical_data = fetch_historical_data(
-        kite, 
-        config['stock'], 
-        config['instrument_token'], 
-        config['days_back'], 
+        kite,
+        config['stock'],
+        config['instrument_token'],
+        config['days_back'],
         config['timeframe']
     )
-    
     if historical_data is None or historical_data.empty:
         print(f"❌ Failed to fetch data. Exiting...")
-        return
-    
+        return (None, None)
+
     # Step 4: Run backtest
-    print(f"\n🎯 RUNNING BACKTEST")
-    print("-" * 40)
-    
-    backtest_engine, results = run_strategy_backtest(
-        historical_data, 
-        config['stock'], 
-        config
-    )
-    
-    # Step 5: Analyze results
-    print(f"\n📈 ANALYZING RESULTS")
-    print("-" * 40)
-    analyze_results(backtest_engine, results)
-    
-    print(f"\n✅ Backtesting completed!")
-    
-    # Ask if user wants to test another configuration
-    while True:
-        another_test = input(f"\n� Do you want to test another configuration? (y/n): ").strip().lower()
-        if another_test in ['y', 'yes']:
-            print(f"\n" + "="*60)
-            return main()  # Restart the process
-        elif another_test in ['n', 'no']:
-            print(f"\n👋 Thank you for using the backtesting tool!")
-            break
-        else:
-            print("❌ Please enter 'y' for yes or 'n' for no.")
-    
-    return backtest_engine, results
+    backtest, results = run_strategy_backtest(historical_data, config['stock'], config)
+    return (backtest, results)
 
 if __name__ == "__main__":
     try:
         engine, results = main()
+        if engine is None:
+            # Already printed a reason above; just stop gracefully
+            pass
     except KeyboardInterrupt:
         print(f"\n\n⏹️ Backtesting interrupted by user. Goodbye!")
     except Exception as e:
