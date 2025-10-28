@@ -82,43 +82,38 @@ class TechnicalIndicators:
         
         return self._get_cached_or_calculate(cache_key, calculate)
     
+    # technical_indicators/technical_analysis.py
+
     def rsi(self, data: Union[pd.Series, list], period: int = 14) -> pd.Series:
         """
-        Relative Strength Index with proper calculation and caching
+        Relative Strength Index with proper calculation and caching.
+        Returns NaNs until there are at least period+1 points (no warnings).
         """
         try:
             if isinstance(data, list):
                 data = pd.Series(data)
-            
+
+            # Not enough data: return NaNs aligned to input index
             if len(data) < period + 1:
-                warnings.warn(f"Insufficient data for RSI calculation. Need at least {period + 1} points, got {len(data)}")
-                return pd.Series(dtype=float, index=data.index)
-            
+                return pd.Series(np.nan, index=data.index if hasattr(data, 'index') else range(len(data)), dtype=float)
+
             cache_key = self._get_cache_key(data, "rsi", period=period)
-            
+
             def calculate():
-                # Calculate price changes
                 delta = data.diff()
-                
-                # Separate gains and losses
-                gain = delta.where(delta > 0, 0)
-                loss = -delta.where(delta < 0, 0)
-                
-                # Calculate average gain and loss using EMA
+                gain = delta.where(delta > 0, 0.0)
+                loss = -delta.where(delta < 0, 0.0)
                 avg_gain = gain.ewm(span=period, adjust=False).mean()
                 avg_loss = loss.ewm(span=period, adjust=False).mean()
-                
-                # Calculate RS and RSI
-                rs = avg_gain / avg_loss
+                rs = avg_gain / avg_loss.replace(0, np.nan)
                 rsi = 100 - (100 / (1 + rs))
-                
                 return rsi
-            
+
             return self._get_cached_or_calculate(cache_key, calculate)
-            
+
         except Exception as e:
             print(f"Error calculating RSI: {e}")
-            return pd.Series(dtype=float, index=data.index if hasattr(data, 'index') else range(len(data)))
+            return pd.Series(np.nan, index=data.index if hasattr(data, 'index') else range(len(data)), dtype=float)
     
     def macd(self, data: Union[pd.Series, list], 
              fast_period: int = 12, slow_period: int = 26, signal_period: int = 9) -> Tuple[pd.Series, pd.Series, pd.Series]:
