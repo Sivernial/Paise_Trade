@@ -553,10 +553,17 @@ def run_strategy_backtest(df, symbol, config):
     print(f"\n⏳ Running backtest...")
     
     # Run the backtest
+    # Determine plotting preference (optional key injected later)
+    generate_plots = config.get('generate_plots', False)
+    plot_dir = config.get('plot_output_dir', f"plots_{symbol}")
+
     results = backtest.run_backtest(
         data=historical_data,
         start_date=start_date,
-        end_date=end_date
+        end_date=end_date,
+        generate_plots=generate_plots,
+        plot_output_dir=plot_dir,
+        max_plot_symbols=1
     )
     
     return backtest, results
@@ -632,6 +639,20 @@ def main():
 
     # Step 1: Get user inputs
     config = get_user_inputs()
+    # Ask user about plot generation
+    try:
+        plot_choice = input("\n📊 Generate visualization plots? (y/N): ").strip().lower()
+        if plot_choice == 'y':
+            config['generate_plots'] = True
+            custom_dir = input("Enter plot output directory (default 'plots'): ").strip()
+            if custom_dir:
+                config['plot_output_dir'] = custom_dir
+            else:
+                config['plot_output_dir'] = 'plots'
+        else:
+            config['generate_plots'] = False
+    except Exception:
+        config['generate_plots'] = False
 
     # Step 2: Setup Zerodha connection
     print(f"\n📡 CONNECTING TO ZERODHA API")
@@ -665,6 +686,13 @@ if __name__ == "__main__":
         if engine is None:
             # Already printed a reason above; just stop gracefully
             pass
+        else:
+            # If plots were generated, present summary
+            if isinstance(results, dict) and results.get('plot_files'):
+                print("\n🖼 GENERATED PLOTS:")
+                for fp in results['plot_files']:
+                    print(f"   • {fp}")
+                print("\n💡 You can open these image files to inspect performance and trades.")
     except KeyboardInterrupt:
         print(f"\n\n⏹️ Backtesting interrupted by user. Goodbye!")
     except Exception as e:
