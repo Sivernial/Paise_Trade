@@ -8,7 +8,6 @@ import numpy as np
 from typing import Union, Tuple, Optional, Dict, Any
 import warnings
 import hashlib
-from functools import lru_cache
 
 class TechnicalIndicators:
     """

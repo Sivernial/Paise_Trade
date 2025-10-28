@@ -4,13 +4,9 @@ Choose strategies, stocks, timeframes, and parameters interactively
 """
 
 import pandas as pd
-import numpy as np
 from datetime import datetime, timedelta
 import sys
 import os
-
-# Add core modules to path
-sys.path.append('core')
 
 from kiteconnect import KiteConnect
 from core.backtesting import BacktestEngine
@@ -285,6 +281,8 @@ def get_choice_input(prompt, choices, default):
     user_input = input(prompt).strip()
     if not user_input:
         return default
+    return choices.get(user_input, default)
+
 def setup_kite_connection():
     """
     Setup Zerodha Kite connection using API credentials
@@ -439,58 +437,6 @@ def create_strategy_function(strategy_config, position_size_pct=0.5):
                 print(f"   💡 Reason: {signal.reason}")
     
     return generic_backtest_function
-    """
-    Create strategy function for backtesting using MovingAverageCrossover strategy
-    
-    Args:
-        fast_period: Fast moving average period
-        slow_period: Slow moving average period
-    
-    Returns:
-        Strategy function compatible with BacktestEngine
-    """
-    
-    # Initialize the strategy
-    strategy = MovingAverageCrossoverStrategy(params={
-        'fast_period': fast_period,
-        'slow_period': slow_period,
-        'min_confidence': 0.7
-    })
-    
-    def ma_crossover_backtest_function(data_dict, backtest_engine, current_date):
-        """
-        Strategy function for backtesting MovingAverageCrossover
-        """
-        
-        # Generate signals using the strategy
-        signals = strategy.generate_signals(data_dict, current_date)
-        
-        for signal in signals:
-            symbol = signal.symbol
-            current_price = signal.price
-            portfolio_value = backtest_engine.get_portfolio_value()
-            
-            # Check current position
-            has_position = symbol in backtest_engine.positions
-            
-            if signal.signal_type.value == 'BUY' and not has_position:
-                # BUY Signal - Allocate 50% of portfolio
-                position_value = portfolio_value * 0.5
-                shares_to_buy = int(position_value / current_price)
-                
-                if shares_to_buy > 0:
-                    order_id = backtest_engine.place_order(symbol, OrderType.BUY, shares_to_buy)
-                    print(f"🟢 {current_date.strftime('%Y-%m-%d %H:%M')} | BUY {shares_to_buy} WIPRO @ ₹{current_price:.2f}")
-                    print(f"   💡 Reason: {signal.reason}")
-            
-            elif signal.signal_type.value == 'SELL' and has_position:
-                # SELL Signal - Close entire position
-                position = backtest_engine.positions[symbol]
-                order_id = backtest_engine.place_order(symbol, OrderType.SELL, position.quantity)
-                print(f"🔴 {current_date.strftime('%Y-%m-%d %H:%M')} | SELL {position.quantity} WIPRO @ ₹{current_price:.2f}")
-                print(f"   💡 Reason: {signal.reason}")
-    
-    return ma_crossover_backtest_function
 
 def run_strategy_backtest(df, symbol, config):
     """
