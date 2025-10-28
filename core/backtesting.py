@@ -384,9 +384,13 @@ class BacktestEngine:
         
         return value
     
-    def run_backtest(self, data: Dict[str, pd.DataFrame], 
+    def run_backtest(self, 
+                    data: Dict[str, pd.DataFrame], 
                     start_date: Optional[datetime] = None,
-                    end_date: Optional[datetime] = None) -> Dict[str, Any]:
+                    end_date: Optional[datetime] = None,
+                    generate_plots: bool = False,
+                    plot_output_dir: str = "plots",
+                    max_plot_symbols: int = 5) -> Dict[str, Any]:
         """
         Run the backtest simulation
         
@@ -394,6 +398,9 @@ class BacktestEngine:
             data: Dictionary mapping symbols to price DataFrames
             start_date: Backtest start date
             end_date: Backtest end date
+            generate_plots: If True, generate standard performance & price/trade plots
+            plot_output_dir: Directory to store generated plot images
+            max_plot_symbols: Limit number of per-symbol price plots (avoid overload)
             
         Returns:
             Dictionary with backtest results
@@ -483,10 +490,27 @@ class BacktestEngine:
             'daily_returns': self.daily_returns,
             'drawdown_curve': self.drawdown_curve,
             'trades': self.trades,
+            'completed_trades': self.completed_trades,
             'portfolio_values': self.portfolio_values,
             'final_value': self.equity_curve[-1],
-            'total_return': (self.equity_curve[-1] - self.initial_capital) / self.initial_capital
+            'total_return': (self.equity_curve[-1] - self.initial_capital) / self.initial_capital,
+            'plot_files': []
         }
+
+        # Optional visualization generation
+        if generate_plots:
+            try:
+                from visualization.plotting import generate_backtest_plots
+                plot_files = generate_backtest_plots(
+                    results,
+                    data,
+                    output_dir=plot_output_dir,
+                    max_symbols=max_plot_symbols,
+                )
+                results['plot_files'] = plot_files
+                print(f"🖼 Generated {len(plot_files)} plot(s) in '{plot_output_dir}'")
+            except Exception as e:
+                print(f"⚠️ Plot generation failed: {e}")
         
         print(f"✅ Backtest completed!")
         print(f"💰 Final Portfolio Value: ${self.equity_curve[-1]:,.2f}")
