@@ -1,9 +1,31 @@
 """
-Utility Functions for ML Analytics
+ML Analytics Utilities
 
-Contains helper functions for data loading, backtest integration, 
-and other common operations used across the optimization system.
+This module provides utility functions for ML-based trading strategy optimization.
+Functions are organized across multiple files for better maintainability.
 """
+
+# Import main functions from organized modules
+from .strategy_helpers import get_strategy_class, create_strategy_function
+from .backtest_wrapper import create_backtest_wrapper
+from .data_helpers import load_historical_data_for_optimization, validate_historical_data
+from .results_helpers import (
+    extract_metrics_from_backtest, 
+    print_optimization_summary, 
+    print_strategy_comparison
+)
+
+# Make commonly used functions available at package level
+__all__ = [
+    'get_strategy_class',
+    'create_strategy_function', 
+    'create_backtest_wrapper',
+    'load_historical_data_for_optimization',
+    'validate_historical_data',
+    'extract_metrics_from_backtest',
+    'print_optimization_summary',
+    'print_strategy_comparison'
+]
 
 from typing import Dict, Any, List, Callable
 import sys
@@ -12,6 +34,100 @@ from pathlib import Path
 # Add project root to path for imports
 project_root = Path(__file__).parent.parent.parent
 sys.path.append(str(project_root))
+
+# Import data structures
+from data_structures.common import OrderType
+
+# Import strategy classes
+from strategies import (
+    MovingAverageCrossoverStrategy, 
+    RSIMeanReversionStrategy, 
+    BollingerBandStrategy,
+    MultiIndicatorStrategy
+)
+from strategies.adaptive_momentum_breakout import AdaptiveMomentumBreakoutStrategy
+
+def get_strategy_class(strategy_name: str):
+    """
+    Get strategy class by name
+    
+    Args:
+        strategy_name: Name of the strategy
+        
+    Returns:
+        Strategy class
+    """
+    strategy_mapping = {
+        'moving_average_crossover': MovingAverageCrossoverStrategy,
+        'rsi_mean_reversion': RSIMeanReversionStrategy,
+        'bollinger_band': BollingerBandStrategy,
+        'multi_indicator': MultiIndicatorStrategy,
+        'adaptive_momentum_breakout': AdaptiveMomentumBreakoutStrategy
+    }
+    
+    if strategy_name not in strategy_mapping:
+        raise ValueError(f"Unknown strategy: {strategy_name}. Available: {list(strategy_mapping.keys())}")
+    
+    return strategy_mapping[strategy_name]
+
+def create_strategy_function(strategy_name: str, strategy_params: Dict[str, Any], position_size_pct: float = 0.5):
+    """
+    Create strategy function for backtesting based on strategy name and parameters
+    
+    Args:
+        strategy_name: Name of the strategy
+        strategy_params: Strategy parameters
+        position_size_pct: Position size as percentage of portfolio
+    
+    Returns:
+        Strategy function compatible with BacktestEngine
+    """
+    
+    # Get strategy class
+    strategy_class = get_strategy_class(strategy_name)
+    
+    # Initialize the strategy with parameters
+    strategy = strategy_class(params=strategy_params)
+    
+    def generic_backtest_function(data_dict, backtest_engine, current_date):
+        """
+        Generic strategy function for backtesting any strategy
+        """
+        
+        # Generate signals using the strategy
+        signals = strategy.generate_signals(data_dict, current_date)
+        
+        for signal in signals:
+            symbol = signal.symbol
+            current_price = signal.price
+            portfolio_value = backtest_engine.get_portfolio_value()
+            
+            # Check current position
+            has_position = symbol in backtest_engine.positions
+            
+            if signal.signal_type.value == 'BUY' and not has_position:
+                # Calculate position size
+                position_value = portfolio_value * position_size_pct
+                quantity = int(position_value / current_price)
+                
+                if quantity > 0:
+                    backtest_engine.place_order(
+                        symbol=symbol,
+                        quantity=quantity,
+                        order_type=OrderType.BUY,
+                        price=current_price
+                    )
+            
+            elif signal.signal_type.value == 'SELL' and has_position:
+                position = backtest_engine.positions[symbol]
+                backtest_engine.place_order(
+                    symbol=symbol,
+                    quantity=position.quantity,
+                    order_type=OrderType.SELL,
+                    price=current_price
+                )
+    
+    return generic_backtest_function
 
 def create_backtest_wrapper(backtest_engine):
     """
@@ -31,23 +147,49 @@ def create_backtest_wrapper(backtest_engine):
         
         Args:
             strategy_name: Name of strategy to test
-            parameters: Strategy parameters
+            parameters: Strategy parameters (now includes actual strategy parameters!)
             historical_data: Historical price data
             
         Returns:
             Backtest results dictionary
         """
         try:
-            # Extract data for backtest (expecting symbol -> DataFrame mapping)
-            # Convert to format expected by BacktestEngine
-            data = historical_data  # Should already be in correct format
+            # Separate strategy parameters from backtest engine parameters
+            strategy_params = {}
+            backtest_params = {}
+            position_size_pct = 0.5  # default
             
-            # TODO: Create strategy function with parameters
-            # For now, we'll return a dummy result to test the optimization flow
+            for key, value in parameters.items():
+                if key in ['initial_capital', 'commission_rate', 'slippage_rate']:
+                    backtest_params[key] = value
+                elif key == 'position_size_pct':
+                    position_size_pct = value
+                else:
+                    # This should be a strategy-specific parameter
+                    strategy_params[key] = value
+            
+            # Update backtest engine parameters if provided
+            if 'initial_capital' in backtest_params:
+                backtest_engine.initial_capital = backtest_params['initial_capital']
+                backtest_engine.cash = backtest_params['initial_capital']
+            if 'commission_rate' in backtest_params:
+                backtest_engine.commission_rate = backtest_params['commission_rate']
+            if 'slippage_rate' in backtest_params:
+                backtest_engine.slippage_rate = backtest_params['slippage_rate']
+            
+            # Create strategy function with the strategy-specific parameters
+            strategy_function = create_strategy_function(
+                strategy_name=strategy_name,
+                strategy_params=strategy_params,
+                position_size_pct=position_size_pct
+            )
+            
+            # Set the strategy function
+            backtest_engine.set_strategy(strategy_function)
             
             # Run backtest with the data
             results = backtest_engine.run_backtest(
-                data=data,
+                data=historical_data,
                 generate_plots=False  # No plots during optimization
             )
             

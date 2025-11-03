@@ -190,6 +190,18 @@ class ParameterSpace:
     @classmethod
     def get_strategy_space(cls, strategy_name: str) -> Dict[str, ParameterSpec]:
         """Get parameter space for a specific strategy"""
+        # Handle both friendly names and class names
+        name_mapping = {
+            'moving_average_crossover': 'MovingAverageCrossoverStrategy',
+            'rsi_mean_reversion': 'RSIMeanReversionStrategy', 
+            'bollinger_band': 'BollingerBandStrategy',
+            'multi_indicator': 'MultiIndicatorStrategy',
+            'adaptive_momentum_breakout': 'AdaptiveMomentumBreakoutStrategy'
+        }
+        
+        # Convert friendly name to class name if needed
+        class_name = name_mapping.get(strategy_name, strategy_name)
+        
         strategy_spaces = {
             'MovingAverageCrossoverStrategy': cls.MA_CROSSOVER_SPACE,
             'RSIMeanReversionStrategy': cls.RSI_MEAN_REVERSION_SPACE,
@@ -197,7 +209,8 @@ class ParameterSpace:
             'MultiIndicatorStrategy': cls.MULTI_INDICATOR_SPACE,
             'AdaptiveMomentumBreakoutStrategy': cls.ADAPTIVE_MOMENTUM_SPACE
         }
-        strategy_space = strategy_spaces.get(strategy_name, {})
+        
+        strategy_space = strategy_spaces.get(class_name, {})
         # Always include backtesting parameters
         combined_space = {**strategy_space, **cls.BACKTESTING_SPACE}
         return combined_space
