@@ -38,16 +38,16 @@ def create_backtest_wrapper(backtest_engine):
             Backtest results dictionary
         """
         try:
-            # Extract data for backtest
-            symbol = list(historical_data.keys())[0]  # Use first symbol
-            data = historical_data[symbol]
+            # Extract data for backtest (expecting symbol -> DataFrame mapping)
+            # Convert to format expected by BacktestEngine
+            data = historical_data  # Should already be in correct format
             
-            # Run backtest
+            # TODO: Create strategy function with parameters
+            # For now, we'll return a dummy result to test the optimization flow
+            
+            # Run backtest with the data
             results = backtest_engine.run_backtest(
-                strategy_name=strategy_name,
-                symbol=symbol,
                 data=data,
-                strategy_params=parameters,
                 generate_plots=False  # No plots during optimization
             )
             

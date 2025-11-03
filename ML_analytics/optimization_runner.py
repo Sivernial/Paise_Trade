@@ -20,6 +20,8 @@ sys.path.append(str(project_root))
 from core.backtesting import BacktestEngine
 from core.data_manager import DataManager
 from core.config_manager import ConfigManager
+from kiteconnect import KiteConnect
+import pandas as pd
 
 # ML Analytics imports
 from .optimizer import OptimizationRunner
@@ -27,6 +29,94 @@ from .constants import OptimizationConfig
 from .parameter_spaces import ParameterSpace
 from .objective_functions import ObjectiveFunction
 from .utils import create_backtest_wrapper, extract_metrics_from_backtest, print_optimization_summary, print_strategy_comparison
+
+# Common Indian stock instrument tokens (you can add more)
+STOCK_TOKENS = {
+    'RELIANCE': 738561,
+    'TCS': 2953217,
+    'HDFCBANK': 341249,
+    'INFY': 408065,
+    'HINDUNILVR': 356865,
+    'ICICIBANK': 1270529,
+    'SBIN': 779521,
+    'BHARTIARTL': 2714625,
+    'ITC': 424961,
+    'WIPRO': 969473,
+    'LT': 2939649,
+    'HCLTECH': 1850625,
+    'AXISBANK': 1510401,
+    'MARUTI': 2815745,
+    'ASIANPAINT': 60417
+}
+
+def get_instrument_token(symbol: str) -> int:
+    """Get instrument token for a symbol."""
+    symbol = symbol.upper()
+    if symbol in STOCK_TOKENS:
+        return STOCK_TOKENS[symbol]
+    else:
+        raise ValueError(f"Instrument token not found for symbol: {symbol}. Available symbols: {list(STOCK_TOKENS.keys())}")
+
+def fetch_historical_data(kite, symbol, instrument_token, days_back=60, interval="15minute"):
+    """
+    Fetch historical data from Zerodha in chunks to respect API interval limits.
+    Intraday (minute/hour) is capped at ~60 days per call.
+    """
+    print(f"📊 Fetching {symbol} historical data...")
+    print(f"📅 Period: Last {days_back} days")
+    print(f"⏰ Timeframe: {interval}")
+
+    # Per-interval max window (days). Adjust if your API plan differs.
+    intraday_intervals = {'minute', '3minute', '5minute', '10minute', '15minute', '30minute', 'hour'}
+    max_window_days = 60 if interval in intraday_intervals else 3650  # ~10 years for 'day'
+
+    to_date = datetime.now()
+    from_date = to_date - timedelta(days=days_back)
+
+    all_frames = []
+    cur_to = to_date
+
+    while cur_to > from_date:
+        window_from = max(from_date, cur_to - timedelta(days=max_window_days - 1))
+
+        try:
+            historical_data = kite.historical_data(
+                instrument_token=instrument_token,
+                from_date=window_from,
+                to_date=cur_to,
+                interval=interval
+            )
+        except Exception as e:
+            print(f"❌ Error fetching chunk {window_from.date()} -> {cur_to.date()}: {e}")
+            break
+
+        df_chunk = pd.DataFrame(historical_data)
+        if df_chunk.empty:
+            # No more data returned—stop
+            break
+
+        # Normalize
+        df_chunk['date'] = pd.to_datetime(df_chunk['date'])
+        all_frames.append(df_chunk)
+
+        # Move to previous window (leave a 1-day gap to avoid overlap)
+        cur_to = window_from - timedelta(days=1)
+
+    if not all_frames:
+        print(f"❌ No data received for {symbol}")
+        return None
+
+    # Concatenate and clean
+    df = pd.concat(all_frames, ignore_index=True)
+    df.drop_duplicates(subset=['date'], inplace=True)
+    df.sort_values('date', inplace=True)
+    df.set_index('date', inplace=True)
+
+    # Standardize column names to match the rest of the code
+    df.columns = ['open', 'high', 'low', 'close', 'volume']
+
+    print(f"✅ Data fetched successfully!")
+    return df
 
 class MLOptimizationInterface:
     """
@@ -38,11 +128,19 @@ class MLOptimizationInterface:
         Initialize the optimization interface
         
         Args:
-            config_path: Path to configuration file
+            config_path: Path to configuration file (optional)
         """
         # Initialize core components
-        self.config_manager = ConfigManager(config_path)
-        self.data_manager = DataManager()
+        if config_path:
+            self.config_manager = ConfigManager(config_dir=config_path)
+        else:
+            self.config_manager = ConfigManager()  # Use default config directory
+        
+        # Initialize Kite connection
+        self.kite = self._initialize_kite_connection()
+        
+        # Initialize data manager with Kite connection
+        self.data_manager = DataManager(self.kite)
         self.backtest_engine = BacktestEngine()
         
         # Create backtest wrapper for optimization
@@ -67,6 +165,28 @@ class MLOptimizationInterface:
         print(f"Available strategies: {self.available_strategies}")
         print(f"Available optimizers: {self.available_optimizers}")
         print(f"Available objectives: {self.available_objectives}")
+    
+    def _initialize_kite_connection(self):
+        """Initialize Kite connection using environment variables."""
+        try:
+            from dotenv import load_dotenv
+            load_dotenv()
+            
+            api_key = os.getenv('API_KEY')
+            access_token = os.getenv('ACCESS_TOKEN')
+            
+            if not api_key or not access_token:
+                raise ValueError("API_KEY and ACCESS_TOKEN must be set in .env file")
+            
+            kite = KiteConnect(api_key=api_key)
+            kite.set_access_token(access_token)
+            
+            print("✅ Kite connection initialized successfully!")
+            return kite
+            
+        except Exception as e:
+            print(f"❌ Failed to initialize Kite connection: {e}")
+            raise
     
     def optimize_strategy(self,
                          strategy_name: str,
@@ -357,25 +477,37 @@ class MLOptimizationInterface:
         }
     
     def _load_historical_data(self, symbols: List[str], start_date: str, end_date: str) -> Dict[str, Any]:
-        """Load historical data for optimization"""
+        """Load historical data for optimization using direct Kite API calls"""
         historical_data = {}
+        
+        # Calculate days back from the date range
+        from datetime import datetime
+        start_dt = datetime.strptime(start_date, '%Y-%m-%d')
+        end_dt = datetime.strptime(end_date, '%Y-%m-%d')
+        days_back = (end_dt - start_dt).days
         
         for symbol in symbols:
             try:
-                data = self.data_manager.get_historical_data(
+                # Get instrument token
+                instrument_token = get_instrument_token(symbol)
+                
+                # Fetch data using direct Kite API
+                data = fetch_historical_data(
+                    kite=self.kite,
                     symbol=symbol,
-                    start_date=start_date,
-                    end_date=end_date
+                    instrument_token=instrument_token,
+                    days_back=days_back,
+                    interval="15minute"
                 )
                 
                 if data is not None and not data.empty:
                     historical_data[symbol] = data
-                    print(f"Loaded {len(data)} rows for {symbol}")
+                    print(f"✅ Loaded {len(data)} rows for {symbol}")
                 else:
-                    print(f"Warning: No data available for {symbol}")
+                    print(f"⚠️  Warning: No data available for {symbol}")
                     
             except Exception as e:
-                print(f"Error loading data for {symbol}: {e}")
+                print(f"❌ Error loading data for {symbol}: {e}")
                 continue
         
         return historical_data
