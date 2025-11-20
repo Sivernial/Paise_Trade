@@ -33,6 +33,14 @@ class BacktestEngine:
     def place_order(self, symbol: str, transaction_type: TransactionType,
                    quantity: int, price: float) -> str:
         
+        if quantity <= 0:
+            logger.warning(f"Invalid quantity {quantity} for {symbol}")
+            return ""
+        
+        if price <= 0:
+            logger.warning(f"Invalid price {price} for {symbol}")
+            return ""
+        
         commission = quantity * price * self.commission_rate
         
         if transaction_type == TransactionType.BUY:
@@ -74,8 +82,11 @@ class BacktestEngine:
                 pos = self.positions[symbol]
                 total_cost = pos.quantity * pos.entry_price + order.quantity * order.price
                 total_qty = pos.quantity + order.quantity
-                pos.entry_price = total_cost / total_qty
-                pos.quantity = total_qty
+                if total_qty > 0:
+                    pos.entry_price = total_cost / total_qty
+                    pos.quantity = total_qty
+                else:
+                    logger.warning(f"Invalid quantity for {symbol}: total_qty={total_qty}")
             else:
                 self.positions[symbol] = Position(
                     symbol=symbol,
@@ -89,6 +100,11 @@ class BacktestEngine:
                 pos = self.positions[symbol]
                 pnl = (order.price - pos.entry_price) * order.quantity - order.commission
                 
+                trade_return = 0.0
+                denominator = pos.entry_price * order.quantity
+                if denominator != 0:
+                    trade_return = pnl / denominator
+                
                 self.trades.append({
                     'symbol': symbol,
                     'entry_date': pos.entry_date,
@@ -97,7 +113,7 @@ class BacktestEngine:
                     'exit_price': order.price,
                     'quantity': order.quantity,
                     'pnl': pnl,
-                    'return': pnl / (pos.entry_price * order.quantity)
+                    'return': trade_return
                 })
                 
                 pos.quantity -= order.quantity

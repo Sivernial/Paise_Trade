@@ -58,12 +58,13 @@ def run_backtest():
                 price = signal.price
                 # Use configured position size
                 quantity = int(BacktestConfig.POSITION_SIZE / price)
-                backtest_engine.place_order(
-                    signal.symbol, 
-                    TransactionType.BUY, 
-                    quantity, 
-                    price
-                )
+                if quantity > 0:
+                    backtest_engine.place_order(
+                        signal.symbol, 
+                        TransactionType.BUY, 
+                        quantity, 
+                        price
+                    )
             elif signal.signal_type.value == "SELL":
                 if signal.symbol in backtest_engine.positions:
                     pos = backtest_engine.positions[signal.symbol]
