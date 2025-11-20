@@ -1,9 +1,9 @@
 kiteconnect==4.2.0
-pandas==2.1.4
-numpy==1.26.2
+pandas>=2.2.0
+numpy>=1.26.0
 python-dotenv==1.0.0
-matplotlib==3.8.2
-scipy==1.11.4
+matplotlib>=3.9.0
+scipy>=1.13.0
 requests==2.31.0
 websocket-client==1.7.0
 

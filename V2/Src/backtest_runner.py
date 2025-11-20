@@ -4,8 +4,8 @@ sys.path.insert(0, os.path.abspath(os.path.join(os.path.dirname(__file__), '..')
 
 from datetime import datetime, timedelta
 import logging
-from Backtesting import BacktestEngine, HistoricalDataFetcher
-from Algorithms import MACrossoverStrategy
+from Backtesting import BacktestEngine, HistoricalDataFetcher, get_strategy_instance
+from Backtesting.config import MarketDataConfig, BacktestConfig
 from Database import DatabaseConnection, CandleRepository
 from Common import TransactionType
 from login import get_kite_instance
@@ -21,9 +21,10 @@ def run_backtest():
         logger.error("Failed to initialize Kite")
         return
     
-    symbols = ['RELIANCE', 'TCS', 'INFY', 'HDFCBANK']
+    # Load configuration
+    symbols = MarketDataConfig.SYMBOLS
     end_date = datetime.now()
-    start_date = end_date - timedelta(days=365)
+    start_date = end_date - timedelta(days=MarketDataConfig.LOOKBACK_DAYS)
     
     fetcher = HistoricalDataFetcher(kite)
     data = fetcher.fetch_multiple_symbols(symbols, start_date, end_date)
@@ -43,8 +44,11 @@ def run_backtest():
                 candle['timestamp'] = candle['date']
         candle_repo.save_candles(candles)
     
-    strategy = MACrossoverStrategy({'fast_period': 10, 'slow_period': 20})
-    engine = BacktestEngine(initial_capital=100000)
+    # Initialize strategy from config
+    strategy = get_strategy_instance()
+    
+    # Initialize backtest engine with config parameters
+    engine = BacktestEngine()
     
     def strategy_callback(data_dict, backtest_engine, current_date):
         signals = strategy.generate_signals(data_dict, current_date)
@@ -52,7 +56,8 @@ def run_backtest():
         for signal in signals:
             if signal.signal_type.value == "BUY":
                 price = signal.price
-                quantity = int(10000 / price)
+                # Use configured position size
+                quantity = int(BacktestConfig.POSITION_SIZE / price)
                 backtest_engine.place_order(
                     signal.symbol, 
                     TransactionType.BUY, 

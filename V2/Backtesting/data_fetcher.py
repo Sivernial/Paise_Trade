@@ -3,23 +3,20 @@ from typing import Dict, List
 import pandas as pd
 from kiteconnect import KiteConnect
 import logging
+from .config import MarketDataConfig
 
 logger = logging.getLogger(__name__)
 
 class HistoricalDataFetcher:
     
-    INTERVALS = {
-        '1min': 'minute',
-        '5min': '5minute',
-        '15min': '15minute',
-        '1hour': '60minute',
-        '1day': 'day'
-    }
+    INTERVALS = MarketDataConfig.INTERVALS
     
     def __init__(self, kite: KiteConnect):
         self.kite = kite
     
-    def get_instrument_token(self, symbol: str, exchange: str = "NSE") -> int:
+    def get_instrument_token(self, symbol: str, exchange: str = None) -> int:
+        if exchange is None:
+            exchange = MarketDataConfig.EXCHANGE
         instruments = self.kite.instruments(exchange)
         for inst in instruments:
             if inst['tradingsymbol'] == symbol and inst['exchange'] == exchange:
@@ -27,8 +24,12 @@ class HistoricalDataFetcher:
         raise ValueError(f"Symbol {symbol} not found on {exchange}")
     
     def fetch_historical_data(self, symbol: str, start_date: datetime, 
-                             end_date: datetime, interval: str = "1day",
-                             exchange: str = "NSE") -> pd.DataFrame:
+                             end_date: datetime, interval: str = None,
+                             exchange: str = None) -> pd.DataFrame:
+        if interval is None:
+            interval = MarketDataConfig.INTERVAL
+        if exchange is None:
+            exchange = MarketDataConfig.EXCHANGE
         try:
             token = self.get_instrument_token(symbol, exchange)
             
@@ -58,8 +59,8 @@ class HistoricalDataFetcher:
             return pd.DataFrame()
     
     def fetch_multiple_symbols(self, symbols: List[str], start_date: datetime,
-                               end_date: datetime, interval: str = "1day",
-                               exchange: str = "NSE") -> Dict[str, pd.DataFrame]:
+                               end_date: datetime, interval: str = None,
+                               exchange: str = None) -> Dict[str, pd.DataFrame]:
         data = {}
         for symbol in symbols:
             df = self.fetch_historical_data(symbol, start_date, end_date, 

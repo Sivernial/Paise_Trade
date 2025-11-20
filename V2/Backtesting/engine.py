@@ -3,14 +3,19 @@ from typing import Dict, List, Callable
 import pandas as pd
 import numpy as np
 from Common import Order, Position, OrderType, TransactionType, OrderStatus
+from .config import BacktestConfig
 import logging
 
 logger = logging.getLogger(__name__)
 
 class BacktestEngine:
     
-    def __init__(self, initial_capital: float = 100000, 
-                 commission_rate: float = 0.001):
+    def __init__(self, initial_capital: float = None, 
+                 commission_rate: float = None):
+        if initial_capital is None:
+            initial_capital = BacktestConfig.INITIAL_CAPITAL
+        if commission_rate is None:
+            commission_rate = BacktestConfig.COMMISSION_RATE
         self.initial_capital = initial_capital
         self.cash = initial_capital
         self.commission_rate = commission_rate
@@ -108,6 +113,11 @@ class BacktestEngine:
     
     def run(self, data: Dict[str, pd.DataFrame], strategy_func: Callable,
            start_date: datetime = None, end_date: datetime = None) -> dict:
+        
+        # Convert all DataFrame indices to timezone-naive
+        for symbol in data:
+            if data[symbol].index.tzinfo is not None:
+                data[symbol].index = data[symbol].index.tz_localize(None)
         
         all_dates = sorted(set().union(*[set(df.index) for df in data.values()]))
         
