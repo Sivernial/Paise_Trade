@@ -4,6 +4,7 @@ from .rsi_strategy import RSIStrategy
 from .bollinger_strategy import BollingerStrategy
 from .orb_vwap_strategy import ORBVWAPStrategy
 from .vwap_reversion_strategy import VWAPReversionStrategy
+from .hybrid_orb_strategy import HybridORBStrategy
 
 __all__ = [
     'BaseStrategy', 
@@ -11,6 +12,7 @@ __all__ = [
     'RSIStrategy', 
     'BollingerStrategy',
     'ORBVWAPStrategy',
-    'VWAPReversionStrategy'
+    'VWAPReversionStrategy',
+    'HybridORBStrategy'
 ]
 

@@ -85,8 +85,24 @@ def run_backtest():
     # Initialize strategy from config
     strategy = get_strategy_instance()
     
-    # Initialize backtest engine with config parameters
-    engine = BacktestEngine()
+    # Get position management settings from strategy params
+    enable_pm = True
+    time_stop = '15:20'
+    partial_exit_pct = 0.5
+    trail_atr_mult = 2.0
+    
+    if hasattr(strategy, 'params'):
+        time_stop = strategy.params.get('time_stop', '15:20')
+        partial_exit_pct = strategy.params.get('partial_exit_pct', 0.5)
+        trail_atr_mult = strategy.params.get('trail_atr_mult', 2.0)
+    
+    # Initialize backtest engine with position management
+    engine = BacktestEngine(
+        enable_position_management=enable_pm,
+        time_stop=time_stop,
+        partial_exit_pct=partial_exit_pct,
+        trail_atr_mult=trail_atr_mult
+    )
     
     def strategy_callback(data_dict, backtest_engine, current_date):
         signals = strategy.generate_signals(data_dict, current_date)
@@ -96,7 +112,12 @@ def run_backtest():
             logger.info(f"Date: {current_date} | Signals Generated: {len(signals)}")
         
         for signal in signals:
+            # Skip opening new positions if already have one
             if signal.signal_type.value == "BUY":
+                if signal.symbol in backtest_engine.positions:
+                    logger.debug(f"Already have position in {signal.symbol}, skipping")
+                    continue
+                
                 price = signal.price
                 # Use configured position size
                 quantity = int(BacktestConfig.POSITION_SIZE / price)
@@ -105,15 +126,21 @@ def run_backtest():
                         signal.symbol, 
                         TransactionType.BUY, 
                         quantity, 
-                        price
+                        price,
+                        signal=signal  # Pass signal for position management
                     )
                     if order_id:
                         logger.info(f"🟢 BUY SIGNAL: {signal.symbol}")
                         logger.info(f"   Price: ₹{price:.2f} | Qty: {quantity} | Value: ₹{price*quantity:,.2f}")
+                        if signal.stop_loss:
+                            logger.info(f"   Stop Loss: ₹{signal.stop_loss:.2f}")
+                        if signal.target:
+                            logger.info(f"   Target: ₹{signal.target:.2f}")
                         logger.info(f"   Reason: {signal.reason}")
                         logger.info(f"   Cash: ₹{backtest_engine.cash:,.2f}")
                     else:
                         logger.warning(f"❌ BUY FAILED: {signal.symbol} at ₹{price:.2f} - Insufficient funds")
+            
             elif signal.signal_type.value == "SELL":
                 if signal.symbol in backtest_engine.positions:
                     pos = backtest_engine.positions[signal.symbol]
@@ -127,7 +154,8 @@ def run_backtest():
                         signal.symbol,
                         TransactionType.SELL,
                         quantity,
-                        signal.price
+                        signal.price,
+                        signal=signal
                     )
                     if order_id:
                         logger.info(f"🔴 SELL SIGNAL: {signal.symbol}")

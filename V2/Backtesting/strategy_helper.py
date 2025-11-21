@@ -4,7 +4,8 @@ from Algorithms import (
     RSIStrategy, 
     BollingerStrategy,
     ORBVWAPStrategy,
-    VWAPReversionStrategy
+    VWAPReversionStrategy,
+    HybridORBStrategy
 )
 
 
@@ -15,6 +16,7 @@ def get_strategy_params(strategy_name: str) -> dict:
         'Bollinger': StrategyConfig.BOLLINGER,
         'ORB_VWAP': StrategyConfig.ORB_VWAP,
         'VWAP_REVERSION': StrategyConfig.VWAP_REVERSION,
+        'HYBRID_ORB': StrategyConfig.HYBRID_ORB,
     }
     return strategy_map.get(strategy_name, {})
 
@@ -29,6 +31,7 @@ def get_strategy_instance(strategy_name: str = None):
         'Bollinger': BollingerStrategy,
         'ORB_VWAP': ORBVWAPStrategy,
         'VWAP_REVERSION': VWAPReversionStrategy,
+        'HYBRID_ORB': HybridORBStrategy,
     }
     
     strategy_class = strategy_classes.get(strategy_name)

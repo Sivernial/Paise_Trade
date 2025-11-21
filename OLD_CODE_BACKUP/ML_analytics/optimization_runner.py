@@ -670,7 +670,7 @@ def main():
     try:
         result = ml_optimizer.optimize_strategy(
             strategy_name='moving_average_crossover',
-            symbols=['NIFTY'],
+            symbols=['NIFTY50'],
             optimizer_type='grid_search',  # Start with grid search (most reliable)
             objective_function='sharpe_ratio',
             max_evaluations=20  # Small number for testing
@@ -685,7 +685,7 @@ def main():
     try:
         comparison_results = ml_optimizer.compare_strategies(
             strategies=['moving_average_crossover', 'rsi_mean_reversion'],
-            symbols=['NIFTY'],
+            symbols=['NIFTY50'],
             optimizer_type='grid_search',
             max_evaluations_per_strategy=15
         )

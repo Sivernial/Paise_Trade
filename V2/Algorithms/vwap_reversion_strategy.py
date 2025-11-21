@@ -3,6 +3,7 @@ import pandas as pd
 import numpy as np
 from datetime import datetime, time
 from .base_strategy import BaseStrategy
+from .common import compute_rvol, compute_vwap_std
 from Common import Signal, SignalType
 import logging
 
@@ -24,53 +25,6 @@ class VWAPReversionStrategy(BaseStrategy):
         if params:
             default_params.update(params)
         super().__init__(default_params)
-    
-    def compute_intraday_vwap(self, df: pd.DataFrame) -> pd.Series:
-        """Compute VWAP for a single day"""
-        pv = (df['close'] * df['volume']).cumsum()
-        vv = df['volume'].cumsum().replace(0, np.nan)
-        return pv / vv
-    
-    def compute_intraday_vwap_std(self, df: pd.DataFrame) -> pd.Series:
-        """Compute VWAP standard deviation for a single day"""
-        vwap = self.compute_intraday_vwap(df)
-        squared_diff = ((df['close'] - vwap) ** 2 * df['volume']).cumsum()
-        cum_vol = df['volume'].cumsum().replace(0, np.nan)
-        variance = squared_diff / cum_vol
-        return np.sqrt(variance)
-    
-    def compute_rvol(self, df: pd.DataFrame, lookback_days: int = 20) -> pd.Series:
-        """
-        Compute relative volume compared to same time of day over past N days
-        """
-        if len(df) < lookback_days:
-            return pd.Series(1.0, index=df.index)
-        
-        try:
-            tod = df.index.time
-            grouped = df.groupby([df.index.date, tod])['volume'].sum().unstack(level=0)
-            
-            if grouped.empty or len(grouped.columns) < 2:
-                return pd.Series(1.0, index=df.index)
-            
-            # Average volume by time of day over lookback period
-            lookback_cols = min(lookback_days, len(grouped.columns))
-            avg_vol_by_tod = grouped.iloc[:, -lookback_cols:].mean(axis=1)
-            
-            # Map back to dataframe
-            rvol = pd.Series(index=df.index, dtype=float)
-            for idx in df.index:
-                current_vol = df.loc[idx, 'volume']
-                avg_vol = avg_vol_by_tod.get(idx.time(), np.nan)
-                if pd.notna(avg_vol) and avg_vol > 0:
-                    rvol[idx] = current_vol / avg_vol
-                else:
-                    rvol[idx] = 1.0
-            
-            return rvol
-        except Exception as e:
-            logger.warning(f"RVOL calculation failed: {e}, returning 1.0")
-            return pd.Series(1.0, index=df.index)
     
     def detect_failed_push(self, df: pd.DataFrame, lookback: int = 3) -> tuple:
         """Detect failed upside or downside push"""
@@ -118,8 +72,9 @@ class VWAPReversionStrategy(BaseStrategy):
                 vwap_series = []
                 vwap_std_series = []
                 for date, group in df_copy.groupby(df_copy.index.date):
-                    daily_vwap = self.compute_intraday_vwap(group)
-                    daily_vwap_std = self.compute_intraday_vwap_std(group)
+                    daily_vwap = self.static_ind.vwap(group['high'], group['low'], 
+                                                       group['close'], group['volume'])
+                    daily_vwap_std = compute_vwap_std(group)
                     vwap_series.append(daily_vwap)
                     vwap_std_series.append(daily_vwap_std)
                 
@@ -127,7 +82,7 @@ class VWAPReversionStrategy(BaseStrategy):
                 df_copy['vwap_std'] = pd.concat(vwap_std_series)
                 
                 # Compute RVOL
-                df_copy['rvol'] = self.compute_rvol(df_copy, lookback_days)
+                df_copy['rvol'] = compute_rvol(df_copy, lookback_days)
                 
                 # Compute ATR
                 atr = self.static_ind.atr(df_copy['high'], df_copy['low'], df_copy['close'], atr_period)

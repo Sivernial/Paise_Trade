@@ -28,6 +28,16 @@ class Position:
     current_price: float = 0.0
     unrealized_pnl: float = 0.0
     realized_pnl: float = 0.0
+    # Position Management Fields
+    stop_loss: Optional[float] = None
+    target: Optional[float] = None
+    trailing_stop: Optional[float] = None
+    breakeven_trigger: Optional[float] = None
+    partial_exit_trigger: Optional[float] = None
+    partial_exit_done: bool = False  # Track if partial exit already executed
+    breakeven_moved: bool = False    # Track if stop moved to breakeven
+    highest_price: float = 0.0       # Track highest price for trailing stop
+    lowest_price: float = float('inf')  # Track lowest price for trailing stop (shorts)
 
 @dataclass
 class Signal:
@@ -38,6 +48,11 @@ class Signal:
     confidence: float = 0.0
     reason: str = ""
     quantity: int = 0
+    stop_loss: Optional[float] = None
+    target: Optional[float] = None
+    trailing_stop: Optional[float] = None
+    breakeven_trigger: Optional[float] = None  # Price at which to move stop to breakeven
+    partial_exit_trigger: Optional[float] = None  # Price at which to take partial profits
 
 @dataclass
 class Candle:
