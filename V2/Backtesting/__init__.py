@@ -13,3 +13,5 @@ __all__ = [
     'get_strategy_instance'
 ]
 
+# Resampling utility can be imported via: from Backtesting.data_fetcher import resample_ohlcv
+

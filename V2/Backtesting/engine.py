@@ -172,7 +172,11 @@ class BacktestEngine:
         
         total_return = (equity[-1] - equity[0]) / equity[0]
         
-        sharpe = np.mean(returns) / np.std(returns) * np.sqrt(252) if len(returns) > 0 else 0
+        # Calculate Sharpe ratio with protection against division by zero
+        if len(returns) > 0 and np.std(returns) > 0:
+            sharpe = np.mean(returns) / np.std(returns) * np.sqrt(252)
+        else:
+            sharpe = 0.0
         
         max_dd = 0
         peak = equity[0]

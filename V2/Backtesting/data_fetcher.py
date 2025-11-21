@@ -1,5 +1,5 @@
 from datetime import datetime, timedelta
-from typing import Dict, List
+from typing import Dict, List, Optional
 import pandas as pd
 from kiteconnect import KiteConnect
 import logging
@@ -13,6 +13,28 @@ class HistoricalDataFetcher:
     
     def __init__(self, kite: KiteConnect):
         self.kite = kite
+    
+    @staticmethod
+    def resample_ohlcv(df: pd.DataFrame, target_interval: str) -> pd.DataFrame:
+        """
+        Resample 1-min data to higher timeframe (e.g., 5min, 15min)
+        Preserves OHLCV structure and maintains trading session logic
+        """
+        if df.empty:
+            return df
+        
+        resampled = df.resample(target_interval, label='right', closed='right').agg({
+            'open': 'first',
+            'high': 'max',
+            'low': 'min',
+            'close': 'last',
+            'volume': 'sum'
+        }).dropna()
+        
+        if 'symbol' in df.columns:
+            resampled['symbol'] = df['symbol'].iloc[0]
+        
+        return resampled
     
     def get_instrument_token(self, symbol: str, exchange: str = None) -> int:
         if exchange is None:
@@ -69,4 +91,34 @@ class HistoricalDataFetcher:
                 data[symbol] = df
                 logger.info(f"Fetched {len(df)} records for {symbol}")
         return data
+    
+    def fetch_and_resample(self, symbols: List[str], start_date: datetime,
+                          end_date: datetime, fetch_interval: str = '1min',
+                          signal_interval: str = '5min',
+                          exchange: str = None) -> tuple:
+        """
+        Fetch data at one interval (e.g., 1min) and return both raw and resampled data
+        
+        Returns:
+            tuple: (raw_data_dict, resampled_data_dict)
+        """
+        raw_data = {}
+        resampled_data = {}
+        
+        for symbol in symbols:
+            df_raw = self.fetch_historical_data(symbol, start_date, end_date, 
+                                               fetch_interval, exchange)
+            if not df_raw.empty:
+                raw_data[symbol] = df_raw
+                
+                if fetch_interval != signal_interval:
+                    df_resampled = self.resample_ohlcv(df_raw, signal_interval)
+                    resampled_data[symbol] = df_resampled
+                    logger.info(f"Fetched {len(df_raw)} {fetch_interval} bars for {symbol}, "
+                              f"resampled to {len(df_resampled)} {signal_interval} bars")
+                else:
+                    resampled_data[symbol] = df_raw
+                    logger.info(f"Fetched {len(df_raw)} {fetch_interval} records for {symbol}")
+        
+        return raw_data, resampled_data
 
