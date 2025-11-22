@@ -12,17 +12,22 @@ class BacktestEngine:
     
     def __init__(self, initial_capital: float = None, 
                  commission_rate: float = None,
+                 slippage_rate: float = None,
                  enable_position_management: bool = True,
                  time_stop: str = '15:20',
                  partial_exit_pct: float = 0.5,
-                 trail_atr_mult: float = 2.0):
+                 trail_atr_mult: float = 2.0,
+                 daily_loss_limit_pct: float = 0.02):
         if initial_capital is None:
             initial_capital = BacktestConfig.INITIAL_CAPITAL
         if commission_rate is None:
             commission_rate = BacktestConfig.COMMISSION_RATE
+        if slippage_rate is None:
+            slippage_rate = BacktestConfig.SLIPPAGE_RATE
         self.initial_capital = initial_capital
         self.cash = initial_capital
         self.commission_rate = commission_rate
+        self.slippage_rate = slippage_rate
         
         self.positions: Dict[str, Position] = {}
         self.orders: List[Order] = []
@@ -43,6 +48,12 @@ class BacktestEngine:
         # Parse time stop
         hour, minute = map(int, time_stop.split(':'))
         self.time_stop = time(hour, minute)
+        
+        # ✅ Daily loss limit
+        self.daily_loss_limit_pct = daily_loss_limit_pct
+        self.daily_start_value = initial_capital
+        self.daily_loss_hit = False
+        self.current_trading_day = None
     
     def place_order(self, symbol: str, transaction_type: TransactionType,
                    quantity: int, price: float, signal: Optional[Signal] = None) -> str:
@@ -55,10 +66,16 @@ class BacktestEngine:
             logger.warning(f"Invalid price {price} for {symbol}")
             return ""
         
-        commission = quantity * price * self.commission_rate
+        # ✅ Apply slippage (worse fill on both buy and sell)
+        if transaction_type == TransactionType.BUY:
+            execution_price = price * (1 + self.slippage_rate)
+        else:
+            execution_price = price * (1 - self.slippage_rate)
+        
+        commission = quantity * execution_price * self.commission_rate
         
         if transaction_type == TransactionType.BUY:
-            cost = quantity * price + commission
+            cost = quantity * execution_price + commission
             if cost > self.cash:
                 logger.warning(f"Insufficient funds for {symbol}")
                 return ""
@@ -67,19 +84,19 @@ class BacktestEngine:
             if symbol not in self.positions or self.positions[symbol].quantity < quantity:
                 logger.warning(f"Insufficient position for {symbol}")
                 return ""
-            self.cash += quantity * price - commission
+            self.cash += quantity * execution_price - commission
         
         order = Order(
             symbol=symbol,
             quantity=quantity,
-            price=price,
+            price=execution_price,  # Use actual execution price (with slippage)
             order_type=OrderType.MARKET,
             transaction_type=transaction_type,
             timestamp=self.current_date,
             order_id=f"ORD_{len(self.orders)+1}",
             status=OrderStatus.COMPLETE,
             filled_quantity=quantity,
-            average_price=price,
+            average_price=execution_price,  # Use actual execution price (with slippage)
             commission=commission
         )
         
@@ -151,13 +168,15 @@ class BacktestEngine:
                     'exit_reason': exit_reason
                 })
                 
+                # ✅ Update realized PnL
+                pos.realized_pnl += pnl
+                
                 pos.quantity -= order.quantity
                 if pos.quantity <= 0:
                     logger.info(f"Position closed: {symbol}, Total PnL: {pos.realized_pnl:.2f}")
                     del self.positions[symbol]
     
     def update_position_management(self):
-        """Update all positions - check stops, targets, partial exits, trailing stops"""
         if not self.enable_position_management:
             return
         
@@ -221,14 +240,12 @@ class BacktestEngine:
                     logger.info(f"Position exit: {actual_quantity} {symbol} @ {price:.2f} - {reason}")
     
     def _close_all_positions(self, reason: str = "Market close"):
-        """Close all open positions"""
         for symbol, pos in list(self.positions.items()):
             price = self.current_prices.get(symbol, pos.entry_price)
             self.place_order(symbol, TransactionType.SELL, pos.quantity, price)
             logger.info(f"Force exit: {pos.quantity} {symbol} @ {price:.2f} - {reason}")
     
     def _check_partial_exit(self, symbol: str) -> Optional[int]:
-        """Check if partial exit should be triggered, return quantity to exit"""
         if symbol not in self.positions:
             return None
         
@@ -251,7 +268,6 @@ class BacktestEngine:
         return None
     
     def _check_breakeven_stop(self, symbol: str):
-        """Move stop to breakeven if breakeven trigger is hit"""
         if symbol not in self.positions:
             return
         
@@ -272,7 +288,6 @@ class BacktestEngine:
             logger.debug(f"Breakeven stop set for {symbol} at {pos.entry_price}")
     
     def _update_trailing_stop(self, symbol: str, current_atr: float):
-        """Update trailing stop based on highest/lowest price"""
         if symbol not in self.positions:
             return
         
@@ -316,7 +331,6 @@ class BacktestEngine:
         return False
     
     def _check_target(self, symbol: str) -> bool:
-        """Check if target is hit"""
         if symbol not in self.positions:
             return False
         
@@ -335,7 +349,6 @@ class BacktestEngine:
         return False
     
     def set_atr(self, symbol: str, atr: float):
-        """Set current ATR for symbol (used for trailing stops)"""
         self.current_atrs[symbol] = atr
     
     def get_portfolio_value(self) -> float:
@@ -365,6 +378,31 @@ class BacktestEngine:
         for date in all_dates:
             self.current_date = date
             self.dates.append(date)
+            
+            # ✅ Reset daily tracking on new trading day
+            if self.current_trading_day != date.date():
+                self.current_trading_day = date.date()
+                self.daily_start_value = self.get_portfolio_value()
+                self.daily_loss_hit = False
+                if self.current_trading_day != all_dates[0].date():
+                    logger.debug(f"New trading day: {self.current_trading_day}, Starting value: ₹{self.daily_start_value:,.2f}")
+            
+            # ✅ Check daily loss limit
+            current_value = self.get_portfolio_value()
+            if self.daily_start_value > 0:
+                daily_pnl = current_value - self.daily_start_value
+                daily_pnl_pct = daily_pnl / self.daily_start_value
+                
+                if daily_pnl_pct < -self.daily_loss_limit_pct:
+                    if not self.daily_loss_hit:
+                        logger.warning(f"⚠️  DAILY LOSS LIMIT HIT on {date.date()}: {daily_pnl_pct:.2%} (Limit: {-self.daily_loss_limit_pct:.2%})")
+                        logger.warning(f"   Start: ₹{self.daily_start_value:,.2f} → Current: ₹{current_value:,.2f} (Loss: ₹{daily_pnl:,.2f})")
+                        self._close_all_positions("Daily loss limit hit")
+                        self.daily_loss_hit = True
+                    # Skip trading for rest of day
+                    portfolio_value = self.get_portfolio_value()
+                    self.equity_curve.append(portfolio_value)
+                    continue
             
             # Update current prices and ATRs
             for symbol, df in data.items():

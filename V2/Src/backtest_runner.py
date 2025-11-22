@@ -33,7 +33,16 @@ def run_backtest():
         return
     
     # Load configuration
-    symbols = MarketDataConfig.SYMBOLS
+    symbols = MarketDataConfig.SYMBOLS.copy()
+    
+    # ✅ Add market index if strategy requires it
+    strategy_temp = get_strategy_instance()
+    if hasattr(strategy_temp, 'params') and 'market_index' in strategy_temp.params:
+        market_index = strategy_temp.params['market_index']
+        if market_index and market_index not in symbols:
+            symbols.append(market_index)
+            logger.info(f"📊 Adding market index for filter: {market_index}")
+    
     end_date = datetime.now()
     start_date = end_date - timedelta(days=MarketDataConfig.LOOKBACK_DAYS)
     

@@ -1,7 +1,7 @@
 from typing import Dict, List
 import pandas as pd
 import numpy as np
-from datetime import datetime, time
+from datetime import datetime, time, timedelta
 from .base_strategy import BaseStrategy
 from .common import compute_rvol
 from Common import Signal, SignalType
@@ -60,13 +60,17 @@ class ORBVWAPStrategy(BaseStrategy):
             df_copy['atr'] = atr
             current_day = current_date.date()
             day_data = df_copy[df_copy.index.date == current_day]
+            # ✅ FIX: Filter to only data up to current time (no lookahead)
+            day_data = day_data[day_data.index <= current_date]
             
             if day_data.empty or len(day_data) < 5:
                 continue
             
             # Define time windows
             market_open = time(9, 15)
-            orb_end_time = time(9, 15 + orb_minutes)
+            # ✅ FIX: Use timedelta for safe time calculation
+            orb_end_dt = datetime.combine(datetime.today(), market_open) + timedelta(minutes=orb_minutes)
+            orb_end_time = orb_end_dt.time()
             
             try:
                 # Get opening range data

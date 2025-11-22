@@ -1,29 +1,38 @@
 import pandas as pd
 import numpy as np
 import logging
+from datetime import datetime
 
 logger = logging.getLogger(__name__)
 
 def compute_rvol(df: pd.DataFrame, lookback_days: int = 20) -> pd.Series:
-    """Compute relative volume compared to same time of day over past N days"""
     if len(df) < lookback_days:
         return pd.Series(1.0, index=df.index)
     
     try:
-        tod = df.index.time
-        grouped = df.groupby([df.index.date, tod])['volume'].sum().unstack(level=0)
-        
-        if grouped.empty or len(grouped.columns) < 2:
-            return pd.Series(1.0, index=df.index)
-        
-        lookback_cols = min(lookback_days, len(grouped.columns))
-        avg_vol_by_tod = grouped.iloc[:, -lookback_cols:].mean(axis=1)
-        
         rvol = pd.Series(index=df.index, dtype=float)
+        
         for idx in df.index:
+            # ✅ FIX: Only use data from PAST days (exclude current day)
+            past_data = df[df.index.date < idx.date()]
+            
+            if len(past_data) == 0:
+                rvol[idx] = 1.0
+                continue
+            
+            # Get same time-of-day bars from past days
+            same_tod = past_data[past_data.index.time == idx.time()]
+            
+            if len(same_tod) == 0:
+                rvol[idx] = 1.0
+                continue
+            
+            # Use most recent N days
+            recent_tod = same_tod.tail(lookback_days)
+            avg_vol = recent_tod['volume'].mean()
             current_vol = df.loc[idx, 'volume']
-            avg_vol = avg_vol_by_tod.get(idx.time(), np.nan)
-            if pd.notna(avg_vol) and avg_vol > 0:
+            
+            if avg_vol > 0:
                 rvol[idx] = current_vol / avg_vol
             else:
                 rvol[idx] = 1.0

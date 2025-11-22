@@ -1,7 +1,7 @@
 from typing import Dict, List, Optional
 import pandas as pd
 import numpy as np
-from datetime import datetime, time
+from datetime import datetime, time, timedelta
 from .base_strategy import BaseStrategy
 from .orb_vwap_strategy import ORBVWAPStrategy
 from .vwap_reversion_strategy import VWAPReversionStrategy
@@ -11,10 +11,7 @@ import logging
 logger = logging.getLogger(__name__)
 
 class HybridORBStrategy(BaseStrategy):
-    """
-    Hybrid strategy that coordinates between ORB/VWAP Momentum and VWAP Mean Reversion
-    Uses existing strategies and adds full position management (stops, targets, trailing)
-    """
+
     
     def __init__(self, params: dict = None):
         default_params = {
@@ -75,7 +72,6 @@ class HybridORBStrategy(BaseStrategy):
     
     def check_market_filter(self, market_data: Optional[pd.DataFrame], 
                            current_date: datetime) -> bool:
-        """Check if market (NIFTY) is above 20-EMA or VWAP"""
         if not self.params['use_market_filter']:
             return True
         
@@ -86,6 +82,8 @@ class HybridORBStrategy(BaseStrategy):
         try:
             current_day = current_date.date()
             day_data = market_data[market_data.index.date == current_day]
+            # ✅ FIX: Filter to only data up to current time (no lookahead)
+            day_data = day_data[day_data.index <= current_date]
             
             if day_data.empty:
                 return True
@@ -93,15 +91,17 @@ class HybridORBStrategy(BaseStrategy):
             current_bar = day_data.iloc[-1]
             current_price = current_bar['close']
             
-            # Check VWAP
+            # Check VWAP (on today's data up to now)
             vwap = self.static_ind.vwap(day_data['high'], day_data['low'], 
                                        day_data['close'], day_data['volume'])
             current_vwap = vwap.iloc[-1]
             
-            # Check 20-EMA
-            ema_20 = self.static_ind.ema(market_data['close'], self.params['ema_period'])
+            # Check 20-EMA (on ALL historical data up to now)
+            historical_data = market_data[market_data.index <= current_date]
+            ema_20 = self.static_ind.ema(historical_data['close'], self.params['ema_period'])
             current_ema = ema_20.iloc[-1]
             
+            # NOTE: Using OR logic - test both AND/OR and compare results
             return current_price > current_vwap or current_price > current_ema
             
         except Exception as e:
@@ -198,18 +198,22 @@ class HybridORBStrategy(BaseStrategy):
                     df = data[symbol]
                     current_day = current_date.date()
                     day_data = df[df.index.date == current_day]
+                    # ✅ FIX: Filter to only data up to current time (no lookahead)
+                    day_data = day_data[day_data.index <= current_date]
                     
                     if not day_data.empty:
                         # Get ORB levels
                         market_open = time(9, 15)
-                        orb_end = time(9, 15 + self.params['orb_minutes'])
+                        # ✅ FIX: Use timedelta for safe time calculation
+                        orb_end_dt = datetime.combine(datetime.today(), market_open) + timedelta(minutes=self.params['orb_minutes'])
+                        orb_end = orb_end_dt.time()
                         orb_data = day_data.between_time(market_open, orb_end)
                         
                         if not orb_data.empty:
                             orh = orb_data['high'].max()
                             orl = orb_data['low'].min()
                             
-                            # Get VWAP and ATR
+                            # Get VWAP and ATR (on data up to current time only)
                             vwap = self.static_ind.vwap(day_data['high'], day_data['low'],
                                                        day_data['close'], day_data['volume'])
                             atr = self.static_ind.atr(day_data['high'], day_data['low'],
@@ -235,6 +239,8 @@ class HybridORBStrategy(BaseStrategy):
                     df = data[symbol]
                     current_day = current_date.date()
                     day_data = df[df.index.date == current_day]
+                    # ✅ FIX: Filter to only data up to current time (no lookahead)
+                    day_data = day_data[day_data.index <= current_date]
                     
                     if not day_data.empty:
                         # For reversion, use VWAP-based stops

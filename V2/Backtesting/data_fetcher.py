@@ -39,11 +39,37 @@ class HistoricalDataFetcher:
     def get_instrument_token(self, symbol: str, exchange: str = None) -> int:
         if exchange is None:
             exchange = MarketDataConfig.EXCHANGE
+        
+        # ✅ For index symbols, try multiple variations and exchanges
+        if "NIFTY" in symbol.upper() or "SENSEX" in symbol.upper():
+            # Try common index variations
+            symbol_variations = [
+                symbol,
+                symbol.replace(" ", ""),  # "NIFTY 50" -> "NIFTY50"
+                symbol.replace(" ", "_"),  # "NIFTY 50" -> "NIFTY_50"
+                symbol.upper().replace(" ", ""),
+            ]
+            exchanges_to_try = [exchange, "NSE", "INDICES"]
+            
+            for exch in exchanges_to_try:
+                try:
+                    instruments = self.kite.instruments(exch)
+                    for var in symbol_variations:
+                        for inst in instruments:
+                            if inst['tradingsymbol'] == var:
+                                logger.info(f"✅ Found {symbol} as '{var}' on {exch} (token: {inst['instrument_token']})")
+                                return inst['instrument_token']
+                except Exception as e:
+                    logger.debug(f"Could not fetch instruments from {exch}: {e}")
+                    continue
+        
+        # Standard lookup for regular stocks
         instruments = self.kite.instruments(exchange)
         for inst in instruments:
             if inst['tradingsymbol'] == symbol and inst['exchange'] == exchange:
                 return inst['instrument_token']
-        raise ValueError(f"Symbol {symbol} not found on {exchange}")
+        
+        raise ValueError(f"Symbol {symbol} not found on {exchange}. Try checking available instruments.")
     
     def fetch_historical_data(self, symbol: str, start_date: datetime, 
                              end_date: datetime, interval: str = None,
@@ -96,12 +122,6 @@ class HistoricalDataFetcher:
                           end_date: datetime, fetch_interval: str = '1min',
                           signal_interval: str = '5min',
                           exchange: str = None) -> tuple:
-        """
-        Fetch data at one interval (e.g., 1min) and return both raw and resampled data
-        
-        Returns:
-            tuple: (raw_data_dict, resampled_data_dict)
-        """
         raw_data = {}
         resampled_data = {}
         

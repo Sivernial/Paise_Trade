@@ -1,11 +1,14 @@
 class MarketDataConfig:
     # NIFTY 50 stocks + NIFTY 50 index for market filter
     SYMBOLS = [
-  "SBIN", "NIFTY 50"
-]
+        "SBIN", 
+        "HDFCBANK",
+        "NIFTY 50"  # ✅ Market index for filter (will try "NIFTY 50" or "NIFTY50")
+    ]
 
 
     EXCHANGE = "NSE"
+    INDEX_EXCHANGE = "NSE"  # Some brokers use "NSE" or "INDICES" for index data
     INTERVAL = "5minute"
     LOOKBACK_DAYS = 30
     
@@ -24,12 +27,42 @@ class MarketDataConfig:
 
 class BacktestConfig:
     INITIAL_CAPITAL = 100000.0
-    COMMISSION_RATE = 0.003
     POSITION_SIZE = 5000.0
+    
+    # ===== INDIAN MARKET COST MODEL =====
+    # Based on NSE Equity Intraday Trading (Discount Brokers like Zerodha)
+    
+    # Brokerage: Flat ₹20 per order or 0.03% (whichever is lower)
+    BROKERAGE_FLAT = 20.0
+    BROKERAGE_PERCENTAGE = 0.0003
+    
+    # STT (Securities Transaction Tax): 0.025% on SELL side only for intraday
+    STT_RATE_SELL = 0.00025
+    
+    # NSE Transaction Charges: 0.00325% of turnover
+    TRANSACTION_CHARGES_RATE = 0.0000325
+    
+    # GST: 18% on (Brokerage + Transaction Charges)
+    GST_RATE = 0.18
+    
+    # SEBI Charges: ₹10 per crore (0.0001%)
+    SEBI_CHARGES_RATE = 0.000001
+    
+    # Stamp Duty: 0.003% on BUY side only
+    STAMP_DUTY_RATE = 0.00003
+    
+    # Slippage: Expected slippage per trade (5 bps)
+    SLIPPAGE_BPS = 5
+    SLIPPAGE_RATE = 0.0005
+    
+    # ===== SIMPLIFIED COMBINED RATE =====
+    # Conservative estimate for quick calculations (~0.05% total)
+    # Includes: Brokerage + STT + Transaction charges + GST + SEBI + Stamp Duty
+    COMMISSION_RATE = 0.0005
 
 
 class StrategyConfig:
-    DEFAULT_STRATEGY = "MA_CROSSOVER"
+    DEFAULT_STRATEGY = "HYBRID_ORB"
     
     MA_CROSSOVER = {
         'fast_period': 5,
@@ -113,5 +146,43 @@ class StrategyConfig:
         
         # RVOL
         'rvol_lookback': 20
+    }
+
+
+def calculate_indian_transaction_cost(quantity: int, price: float, is_buy: bool) -> dict:
+
+    turnover = quantity * price
+    
+    # 1. Brokerage (₹20 flat or 0.03%, whichever is lower)
+    brokerage = min(BacktestConfig.BROKERAGE_FLAT, 
+                   turnover * BacktestConfig.BROKERAGE_PERCENTAGE)
+    
+    # 2. STT (only on SELL for intraday)
+    stt = turnover * BacktestConfig.STT_RATE_SELL if not is_buy else 0.0
+    
+    # 3. Transaction charges
+    txn_charges = turnover * BacktestConfig.TRANSACTION_CHARGES_RATE
+    
+    # 4. GST (18% on brokerage + transaction charges)
+    gst = (brokerage + txn_charges) * BacktestConfig.GST_RATE
+    
+    # 5. SEBI charges
+    sebi = turnover * BacktestConfig.SEBI_CHARGES_RATE
+    
+    # 6. Stamp duty (only on BUY)
+    stamp = turnover * BacktestConfig.STAMP_DUTY_RATE if is_buy else 0.0
+    
+    total_cost = brokerage + stt + txn_charges + gst + sebi + stamp
+    
+    return {
+        'turnover': turnover,
+        'brokerage': brokerage,
+        'stt': stt,
+        'transaction_charges': txn_charges,
+        'gst': gst,
+        'sebi_charges': sebi,
+        'stamp_duty': stamp,
+        'total_cost': total_cost,
+        'cost_percentage': (total_cost / turnover * 100) if turnover > 0 else 0.0
     }
 
