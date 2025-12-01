@@ -62,7 +62,7 @@ class BacktestConfig:
 
 
 class StrategyConfig:
-    DEFAULT_STRATEGY = "HYBRID_ORB"
+    DEFAULT_STRATEGY = "PAIR_TRADING"
     
     MA_CROSSOVER = {
         'fast_period': 5,
@@ -103,6 +103,16 @@ class StrategyConfig:
         'lookback_bars': 3,
         'min_confidence': 0.7,
         'rvol_lookback': 20
+    }
+
+    PAIR_TRADING = {
+        'pairs': [('SBIN', 'HDFCBANK')],
+        'z_score_threshold': 2.0,
+        'lookback_window': 20,
+        'stop_loss_z': 4.0,  # Stop if spread diverges too much
+        'take_profit_z': 0.0, # Exit at mean
+        'min_confidence': 0.8,
+        'time_stop': None  # Disable intraday time stop for multi-day holding
     }
     
     # Hybrid ORB/VWAP Strategy - Full Position Management

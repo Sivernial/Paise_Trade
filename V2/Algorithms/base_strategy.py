@@ -10,7 +10,12 @@ class BaseStrategy(ABC):
     def __init__(self, params: dict = None):
         self.params = params or {}
         self.static_ind = StaticIndicators()
+        self.static_ind = StaticIndicators()
         self.dynamic_ind = DynamicIndicators()
+        self.positions = {}
+    
+    def update_positions(self, positions: dict):
+        self.positions = positions
     
     @abstractmethod
     def generate_signals(self, data: Dict[str, pd.DataFrame], 

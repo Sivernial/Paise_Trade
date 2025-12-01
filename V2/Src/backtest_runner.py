@@ -37,11 +37,25 @@ def run_backtest():
     
     # ✅ Add market index if strategy requires it
     strategy_temp = get_strategy_instance()
-    if hasattr(strategy_temp, 'params') and 'market_index' in strategy_temp.params:
-        market_index = strategy_temp.params['market_index']
-        if market_index and market_index not in symbols:
-            symbols.append(market_index)
-            logger.info(f"📊 Adding market index for filter: {market_index}")
+    if hasattr(strategy_temp, 'params'):
+        if 'market_index' in strategy_temp.params:
+            market_index = strategy_temp.params['market_index']
+            if market_index and market_index not in symbols:
+                symbols.append(market_index)
+                logger.info(f"📊 Adding market index for filter: {market_index}")
+        
+        # ✅ Add Pair Trading symbols
+        if 'pairs' in strategy_temp.params and strategy_temp.params['pairs']:
+            pair_symbols = set()
+            for p in strategy_temp.params['pairs']:
+                pair_symbols.add(p[0])
+                pair_symbols.add(p[1])
+            
+            # Override symbols list for pair trading to ensure we only fetch what's needed
+            # (or append if we want to keep others, but usually we just want the pairs)
+            if isinstance(strategy_temp, get_strategy_instance('PAIR_TRADING').__class__):
+                 symbols = list(pair_symbols)
+                 logger.info(f"👥 Pair Trading Mode: Fetching {symbols}")
     
     end_date = datetime.now()
     start_date = end_date - timedelta(days=MarketDataConfig.LOOKBACK_DAYS)
@@ -114,22 +128,37 @@ def run_backtest():
     )
     
     def strategy_callback(data_dict, backtest_engine, current_date):
-        signals = strategy.generate_signals(data_dict, current_date)
+        # Update strategy with current positions
+        if hasattr(strategy, 'update_positions'):
+            strategy.update_positions(backtest_engine.positions)
+            
+        signals = strategy.generate_signals(strategy_data, current_date)
         
         if signals:
             logger.info(f"\n{'='*80}")
             logger.info(f"Date: {current_date} | Signals Generated: {len(signals)}")
         
         for signal in signals:
-            # Skip opening new positions if already have one
+            # Skip opening new positions if already have one (unless it's a short we need to cover)
             if signal.signal_type.value == "BUY":
+                # Check if we have a position
                 if signal.symbol in backtest_engine.positions:
-                    logger.debug(f"Already have position in {signal.symbol}, skipping")
-                    continue
+                    pos = backtest_engine.positions[signal.symbol]
+                    if pos.quantity > 0:
+                        logger.debug(f"Already Long {signal.symbol}, skipping BUY")
+                        continue
+                    # If pos.quantity < 0, we proceed to BUY (Cover Short)
                 
                 price = signal.price
                 # Use configured position size
                 quantity = int(BacktestConfig.POSITION_SIZE / price)
+                
+                # If covering short, we might want to match the short quantity exactly?
+                # For now, let's just use standard position size logic or close entire short.
+                # The engine handles "Buy to Cover" if we send a BUY order.
+                # If we send standard qty, it might flip to long if qty > short_qty.
+                # Let's assume we want to flip to Long if signal says BUY.
+                
                 if quantity > 0:
                     order_id = backtest_engine.place_order(
                         signal.symbol, 
@@ -151,8 +180,14 @@ def run_backtest():
                         logger.warning(f"❌ BUY FAILED: {signal.symbol} at ₹{price:.2f} - Insufficient funds")
             
             elif signal.signal_type.value == "SELL":
+                # Check if we have a position
                 if signal.symbol in backtest_engine.positions:
                     pos = backtest_engine.positions[signal.symbol]
+                    
+                    if pos.quantity < 0:
+                        logger.debug(f"Already Short {signal.symbol}, skipping SELL")
+                        continue
+                        
                     # Calculate PnL before placing order (position will be modified)
                     entry_price = pos.entry_price
                     quantity = pos.quantity
@@ -167,13 +202,31 @@ def run_backtest():
                         signal=signal
                     )
                     if order_id:
-                        logger.info(f"🔴 SELL SIGNAL: {signal.symbol}")
+                        logger.info(f"🔴 SELL SIGNAL (Close Long): {signal.symbol}")
                         logger.info(f"   Entry: ₹{entry_price:.2f} → Exit: ₹{signal.price:.2f}")
                         logger.info(f"   Qty: {quantity} | PnL: ₹{pnl:,.2f} ({pnl_pct:.2f}%)")
                         logger.info(f"   Reason: {signal.reason}")
                         logger.info(f"   Cash: ₹{backtest_engine.cash:,.2f}")
                 else:
-                    logger.warning(f"⚠️  SELL SIGNAL IGNORED: {signal.symbol} - No position held")
+                    # No position, Open Short
+                    price = signal.price
+                    quantity = int(BacktestConfig.POSITION_SIZE / price)
+                    
+                    if quantity > 0:
+                        order_id = backtest_engine.place_order(
+                            signal.symbol,
+                            TransactionType.SELL,
+                            quantity,
+                            price,
+                            signal=signal
+                        )
+                        if order_id:
+                            logger.info(f"🔴 SELL SIGNAL (Open Short): {signal.symbol}")
+                            logger.info(f"   Price: ₹{price:.2f} | Qty: {quantity} | Value: ₹{price*quantity:,.2f}")
+                            logger.info(f"   Reason: {signal.reason}")
+                            logger.info(f"   Cash: ₹{backtest_engine.cash:,.2f}")
+                        else:
+                            logger.warning(f"❌ SHORT FAILED: {signal.symbol} at ₹{price:.2f} - Insufficient funds")
     
     results = engine.run(data, strategy_callback, start_date, end_date)
     

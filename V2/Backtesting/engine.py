@@ -14,7 +14,7 @@ class BacktestEngine:
                  commission_rate: float = None,
                  slippage_rate: float = None,
                  enable_position_management: bool = True,
-                 time_stop: str = '15:20',
+                 time_stop: Optional[str] = '15:20',
                  partial_exit_pct: float = 0.5,
                  trail_atr_mult: float = 2.0,
                  daily_loss_limit_pct: float = 0.02):
@@ -46,8 +46,13 @@ class BacktestEngine:
         self.trail_atr_mult = trail_atr_mult
         
         # Parse time stop
-        hour, minute = map(int, time_stop.split(':'))
-        self.time_stop = time(hour, minute)
+        self.time_stop = None
+        if time_stop:
+            try:
+                hour, minute = map(int, time_stop.split(':'))
+                self.time_stop = time(hour, minute)
+            except:
+                logger.warning(f"Invalid time_stop format: {time_stop}. Time stop disabled.")
         
         # ✅ Daily loss limit
         self.daily_loss_limit_pct = daily_loss_limit_pct
@@ -81,9 +86,18 @@ class BacktestEngine:
                 return ""
             self.cash -= cost
         else:
-            if symbol not in self.positions or self.positions[symbol].quantity < quantity:
-                logger.warning(f"Insufficient position for {symbol}")
-                return ""
+            # Check if we have enough long position to sell, OR if we are opening a short
+            if symbol in self.positions:
+                # Closing or flipping position
+                pass 
+            else:
+                # Opening new short position
+                # Check margin requirements (assuming 1x margin for simplicity for now, or use cash)
+                cost = quantity * execution_price + commission
+                if cost > self.cash:
+                    logger.warning(f"Insufficient funds for Short {symbol}")
+                    return ""
+                
             self.cash += quantity * execution_price - commission
         
         order = Order(
@@ -109,17 +123,60 @@ class BacktestEngine:
         symbol = order.symbol
         
         if order.transaction_type == TransactionType.BUY:
-            if symbol in self.positions:
+            # 1. Check if we are closing a SHORT position
+            if symbol in self.positions and self.positions[symbol].quantity < 0:
+                pos = self.positions[symbol]
+                # Closing Short
+                close_qty = min(abs(pos.quantity), order.quantity)
+                
+                # PnL for Short: (Entry - Exit) * Qty
+                pnl = (pos.entry_price - order.price) * close_qty - order.commission
+                
+                trade_return = 0.0
+                denominator = pos.entry_price * close_qty
+                if denominator != 0:
+                    trade_return = pnl / denominator
+                
+                exit_reason = 'Manual'
+                if self.time_stop and self.current_date.time() >= self.time_stop:
+                    exit_reason = 'Time Stop'
+                elif pos.stop_loss and order.price >= pos.stop_loss:
+                    exit_reason = 'Stop Loss'
+                elif pos.target and order.price <= pos.target:
+                    exit_reason = 'Target'
+                
+                self.trades.append({
+                    'symbol': symbol,
+                    'entry_date': pos.entry_date,
+                    'exit_date': self.current_date,
+                    'entry_price': pos.entry_price,
+                    'exit_price': order.price,
+                    'quantity': close_qty,
+                    'pnl': pnl,
+                    'return': trade_return,
+                    'exit_reason': exit_reason
+                })
+                
+                pos.realized_pnl += pnl
+                pos.quantity += close_qty # Adding positive to negative
+                
+                if pos.quantity == 0:
+                    logger.info(f"Short Position closed: {symbol}, Total PnL: {pos.realized_pnl:.2f}")
+                    del self.positions[symbol]
+                
+                # Note: If order.quantity > abs(pos.quantity), we should technically open a long with the remainder.
+                # For simplicity, we just close the short here.
+            
+            # 2. Check if we are adding to a LONG position
+            elif symbol in self.positions and self.positions[symbol].quantity > 0:
                 pos = self.positions[symbol]
                 total_cost = pos.quantity * pos.entry_price + order.quantity * order.price
                 total_qty = pos.quantity + order.quantity
-                if total_qty > 0:
-                    pos.entry_price = total_cost / total_qty
-                    pos.quantity = total_qty
-                else:
-                    logger.warning(f"Invalid quantity for {symbol}: total_qty={total_qty}")
+                pos.entry_price = total_cost / total_qty
+                pos.quantity = total_qty
+            
+            # 3. Open new LONG position
             else:
-                # Create new position with position management from signal
                 self.positions[symbol] = Position(
                     symbol=symbol,
                     quantity=order.quantity,
@@ -136,20 +193,23 @@ class BacktestEngine:
                 )
         
         elif order.transaction_type == TransactionType.SELL:
-            if symbol in self.positions:
+            # 1. Check if we are closing a LONG position
+            if symbol in self.positions and self.positions[symbol].quantity > 0:
                 pos = self.positions[symbol]
-                pnl = (order.price - pos.entry_price) * order.quantity - order.commission
+                
+                close_qty = min(pos.quantity, order.quantity)
+                pnl = (order.price - pos.entry_price) * close_qty - order.commission
                 
                 trade_return = 0.0
-                denominator = pos.entry_price * order.quantity
+                denominator = pos.entry_price * close_qty
                 if denominator != 0:
                     trade_return = pnl / denominator
                 
                 # Determine exit reason
                 exit_reason = 'Manual'
-                if pos.partial_exit_done and order.quantity < pos.quantity:
+                if pos.partial_exit_done and close_qty < pos.quantity:
                     exit_reason = 'Partial Exit'
-                elif self.current_date.time() >= self.time_stop:
+                elif self.time_stop and self.current_date.time() >= self.time_stop:
                     exit_reason = 'Time Stop'
                 elif pos.stop_loss and order.price <= pos.stop_loss:
                     exit_reason = 'Stop Loss'
@@ -162,26 +222,56 @@ class BacktestEngine:
                     'exit_date': self.current_date,
                     'entry_price': pos.entry_price,
                     'exit_price': order.price,
-                    'quantity': order.quantity,
+                    'quantity': close_qty,
                     'pnl': pnl,
                     'return': trade_return,
                     'exit_reason': exit_reason
                 })
                 
-                # ✅ Update realized PnL
                 pos.realized_pnl += pnl
+                pos.quantity -= close_qty
                 
-                pos.quantity -= order.quantity
-                if pos.quantity <= 0:
-                    logger.info(f"Position closed: {symbol}, Total PnL: {pos.realized_pnl:.2f}")
+                if pos.quantity == 0:
+                    logger.info(f"Long Position closed: {symbol}, Total PnL: {pos.realized_pnl:.2f}")
                     del self.positions[symbol]
+            
+            # 2. Check if we are adding to a SHORT position
+            elif symbol in self.positions and self.positions[symbol].quantity < 0:
+                pos = self.positions[symbol]
+                # Adding to short (more negative quantity)
+                # Weighted average entry price
+                current_val = abs(pos.quantity) * pos.entry_price
+                new_val = order.quantity * order.price
+                total_qty = abs(pos.quantity) + order.quantity
+                pos.entry_price = (current_val + new_val) / total_qty
+                pos.quantity -= order.quantity
+            
+            # 3. Open new SHORT position
+            else:
+                self._open_short_position(symbol, order.quantity, order.price, order.commission, signal)
+
+    def _open_short_position(self, symbol: str, quantity: int, price: float, commission: float, signal: Optional[Signal] = None):
+        self.positions[symbol] = Position(
+            symbol=symbol,
+            quantity=-quantity, # Negative for short
+            entry_price=price,
+            entry_date=self.current_date,
+            current_price=price,
+            highest_price=price,
+            lowest_price=price,
+            stop_loss=signal.stop_loss if signal else None,
+            target=signal.target if signal else None,
+            trailing_stop=signal.trailing_stop if signal else None,
+            breakeven_trigger=signal.breakeven_trigger if signal else None,
+            partial_exit_trigger=signal.partial_exit_trigger if signal else None
+        )
     
     def update_position_management(self):
         if not self.enable_position_management:
             return
         
         # Check time stop first
-        if self.current_date and self.current_date.time() >= self.time_stop:
+        if self.time_stop and self.current_date and self.current_date.time() >= self.time_stop:
             self._close_all_positions("Time stop")
             return
         
@@ -242,7 +332,10 @@ class BacktestEngine:
     def _close_all_positions(self, reason: str = "Market close"):
         for symbol, pos in list(self.positions.items()):
             price = self.current_prices.get(symbol, pos.entry_price)
-            self.place_order(symbol, TransactionType.SELL, pos.quantity, price)
+            if pos.quantity > 0:
+                self.place_order(symbol, TransactionType.SELL, pos.quantity, price)
+            else:
+                self.place_order(symbol, TransactionType.BUY, abs(pos.quantity), price)
             logger.info(f"Force exit: {pos.quantity} {symbol} @ {price:.2f} - {reason}")
     
     def _check_partial_exit(self, symbol: str) -> Optional[int]:
@@ -355,7 +448,15 @@ class BacktestEngine:
         value = self.cash
         for symbol, pos in self.positions.items():
             current_price = self.current_prices.get(symbol, pos.entry_price)
-            value += pos.quantity * current_price
+            if pos.quantity > 0:
+                value += pos.quantity * current_price
+            else:
+                # Short position value: Entry Value + Unrealized PnL
+                # Unrealized PnL = (Entry - Current) * Qty
+                # Position Value = Cash held from short sale - Current Buyback Cost
+                # But self.cash already includes the cash from short sale.
+                # So we just subtract the current buyback cost.
+                value -= abs(pos.quantity) * current_price
         return value
     
     def run(self, data: Dict[str, pd.DataFrame], strategy_func: Callable,

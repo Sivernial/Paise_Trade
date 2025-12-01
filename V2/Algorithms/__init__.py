@@ -5,6 +5,7 @@ from .bollinger_strategy import BollingerStrategy
 from .orb_vwap_strategy import ORBVWAPStrategy
 from .vwap_reversion_strategy import VWAPReversionStrategy
 from .hybrid_orb_strategy import HybridORBStrategy
+from .pair_trading_strategy import PairTradingStrategy
 
 __all__ = [
     'BaseStrategy', 
@@ -13,6 +14,7 @@ __all__ = [
     'BollingerStrategy',
     'ORBVWAPStrategy',
     'VWAPReversionStrategy',
-    'HybridORBStrategy'
+    'HybridORBStrategy',
+    'PairTradingStrategy'
 ]
 
