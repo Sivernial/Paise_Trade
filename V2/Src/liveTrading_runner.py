@@ -14,6 +14,9 @@ from DataStream_Engine.aggregator import TickAggregator
 from Algorithms import PairTradingStrategy
 from Backtesting.config import BacktestConfig, StrategyConfig
 from Backtesting.data_fetcher import HistoricalDataFetcher
+from Database.connection import DatabaseConnection
+from Database.trade_repository import TradeRepository
+from Common.notifier import notifier
 from login import get_kite_instance
 
 logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(name)s - %(levelname)s - %(message)s')
@@ -44,6 +47,10 @@ class LiveRunningSession:
         
         # Init components
         # Init components
+        # Database
+        self.db = DatabaseConnection()
+        self.trade_repo = TradeRepository(self.db)
+        
         strategy_params = {
             'pairs': [PAIR],
             'z_score_threshold': StrategyConfig.PAIR_TRADING['z_score_threshold'],
@@ -99,7 +106,7 @@ class LiveRunningSession:
             while True:
                 time.sleep(10)
                 status = self.trader.get_status()
-                logger.info(f"Live Status - Pos: {status['positions']}")
+                # logger.info(f"Live Status - Pos: {status['positions']}") # Reduce console spam
         except KeyboardInterrupt:
             logger.info("Stopping...")
             stream.stop()
@@ -139,9 +146,19 @@ class LiveRunningSession:
             
             if signals:
                 logger.info(f"Signals: {signals}")
+                notifier.send(f"New Signal for {PAIR}: {signals}") # Send Alert
+                
+                # Process
                 self.trader.process_signals(signals)
+                
+                # Check for closed trades (Naive check for illustration)
+                # Ideally LiveTrader returns executed trade info
+                # Here we just log signal generation
+                
         except Exception as e:
-            logger.error(f"Strategy Error: {e}")
+            msg = f"Strategy Error: {e}"
+            logger.error(msg)
+            notifier.send(msg)
 
 if __name__ == "__main__":
     session = LiveRunningSession()

@@ -5,7 +5,11 @@ from datetime import datetime
 from .base_strategy import BaseStrategy
 from Common.enums import SignalType
 from Common import Signal
-from Common.quant_utils import calculate_hedge_ratio, calculate_adf_statistic
+from Common import Signal
+from Common.quant_utils import calculate_adf_statistic, KalmanFilterReg
+from AI.feature_engineer import FeatureEngineer
+import joblib
+import os
 import logging
 
 logger = logging.getLogger(__name__)
@@ -30,6 +34,26 @@ class PairTradingStrategy(BaseStrategy):
         self.lookback = self.params['lookback_window']
         self.stop_z = self.params['stop_loss_z']
         self.exit_z = self.params['take_profit_z']
+        
+        # Registry for Kalman Filters (one per pair)
+        self.kf_registry = {}
+        for pair in self.pairs:
+            # Initialize with small delta for adaptivity
+            self.kf_registry[pair] = KalmanFilterReg(delta=1e-4, R=1e-3)
+            
+        self.last_processed: Dict[Tuple[str, str], datetime] = {}
+        
+        # Load AI Model
+        self.model = None
+        model_path = os.path.join(os.path.dirname(__file__), '..', 'AI', 'model.pkl')
+        if os.path.exists(model_path):
+            try:
+                self.model = joblib.load(model_path)
+                logger.info(f"✅ AI Model loaded from {model_path}")
+            except Exception as e:
+                logger.error(f"Failed to load AI model: {e}")
+        else:
+            logger.warning("⚠️ AI Model not found. Running in heuristic mode.")
         
     def calculate_spread_zscore(self, series_a: pd.Series, series_b: pd.Series) -> Tuple[float, float]:
         """
@@ -101,118 +125,109 @@ class PairTradingStrategy(BaseStrategy):
                 # Use longer history for ADF and Hedge Ratio calculation to be stable
                 # Using 2x lookback for calculation window if available, else lookback
                 calc_window = min(len(df_a), self.lookback * 2)
-                window_a = df_a['close'].iloc[-calc_window:]
-                window_b = df_b['close'].iloc[-calc_window:]
                 
-                current_spread, current_z, hedge_ratio, adf_stat = self.calculate_dynamic_zscore(
-                    window_a, window_b
-                )
+                # We need OHLC for features, so take full DF slice
+                window_a_df = df_a.iloc[-calc_window:]
+                window_b_df = df_b.iloc[-calc_window:]
                 
-                if pd.isna(current_z):
-                    continue
-                    
-                # Store hedge ratio context (optional for debugging)
-                # print(f"Pair {asset_a}-{asset_b} | Beta: {hedge_ratio:.3f} | ADF: {adf_stat:.3f} | Z: {current_z:.2f}")
-
+                # For calc, we need series
+                window_a = window_a_df['close']
+                window_b = window_b_df['close']
+                
+                # Update Kalman Filter to get Dynamic Beta
+                pair_key = (asset_a, asset_b)
+                current_time = current_date
+                
+                # Ensure we process each bar only once
+                last_time = self.last_processed.get(pair_key)
+                kf = self.kf_registry[pair_key]
+                
                 price_a = df_a.iloc[-1]['close']
                 price_b = df_b.iloc[-1]['close']
                 
-                # Check Cointegration (ADF critical value approx -2.57 for 10%, -2.86 for 5%)
-                # Relaxed threshold for backtest signals
-                is_cointegrated = adf_stat < -1.94 
+                if last_time != current_time:
+                    beta = kf.update(price_a, price_b)
+                    self.last_processed[pair_key] = current_time
+                else:
+                    beta = kf.state
+
+                # 3. Calculate Spread and Z-Score
+                # Spread = A - Beta * B
+                # Note: Z-Score still needs history. We construct a synthetic spread history?
+                # For simplicity/robustness: Use current beta on lookback window to check Z-score deviation
+                spread_series = window_a - beta * window_b
                 
-                if not is_cointegrated:
-                    # If not cointegrated, avoid entering new positions, but allow exits
-                    pass
+                mean_spread = spread_series.mean()
+                std_spread = spread_series.std()
                 
-                # Sanity Check for Hedge Ratio (Assume positive correlation for Banks)
-                if not (0.2 <= hedge_ratio <= 4.0):
-                    # logger.warning(f"Unstable Beta {hedge_ratio:.2f} for {asset_a}-{asset_b}")
+                if std_spread == 0: continue
+                
+                current_z = (spread_series.iloc[-1] - mean_spread) / std_spread
+                
+                # OPTIMIZATION: ADF Calculation is slow, maybe skip every other bar?
+                # For now keeping it for correctness.
+                adf_stat = calculate_adf_statistic(spread_series)
+                
+                # 4. Entry Logic
+                is_cointegrated = adf_stat < -1.94
+                
+                # AI FILTERING
+                ai_confidence = 1.0 # Default if no model
+                raw_signal = 0
+                
+                if current_z > self.z_threshold: raw_signal = 1
+                elif current_z < -self.z_threshold: raw_signal = -1
+                
+                if self.model and raw_signal != 0:
+                    # Extract Features
+                    # Pass DataFrames!
+                    features = FeatureEngineer.extract_features(
+                        window_a_df, window_b_df, spread_series, current_z, beta, adf_stat
+                    )
+                    if features:
+                        features['Signal_Dir'] = raw_signal
+                        # Prepare DF for prediction
+                        X_pred = pd.DataFrame([features])
+                        # Ensure columns match training (handled by DF names if consistent)
+                        # Predict
+                        probs = self.model.predict_proba(X_pred)[0]
+                        ai_confidence = probs[1] # Prob of Class 1 (Profit)
+                        
+                        # Filter
+                        if ai_confidence < 0.6: # Threshold
+                            # logger.info(f"🤖 AI REJECTED Signal {asset_a}-{asset_b} (Conf: {ai_confidence:.2f})")
+                            continue # SKIP TRADE
+
+                # Beta Guardrails (Avoid extreme leverage)
+                if not (0.2 <= beta <= 4.0):
                     continue
 
-                # Entry Logic
-                # Short Spread: Short A, Long B (Weighted by hedge ratio)
-                # But engine supports integer quantities. 
-                # Simplification: Trade 1 unit of A and beta units of B? 
-                # Or equal value adjusted by beta?
-                # For engine simplicity: 
-                # Qty A = 1 * BaseQty, Qty B = Beta * (Price A / Price B) * BaseQty matches value?
-                # Actually, spread = A - beta*B. To hedge, if we Short 1 unit of A, we Long beta units of B.
-                
-                # Qty A = Base Qty (approx 5000 INR value / 1000 price = 5)
                 base_qty = 5
-                qty_a = base_qty 
-                qty_b = max(1, int(round(base_qty * hedge_ratio)))
+                qty_a = base_qty
+                qty_b = max(1, int(round(base_qty * beta)))
 
+                # Generate Signals
                 if current_z > self.z_threshold and is_cointegrated:
-                    # Signal to Short A
-                    signals.append(Signal(
-                        symbol=asset_a,
-                        signal_type=SignalType.SELL,
-                        price=price_a,
-                        quantity=qty_a,
-                        timestamp=current_date,
-                        confidence=self.params['min_confidence'],
-                        reason=f"Pair {asset_a}-{asset_b} Z-Score {current_z:.2f} > {self.z_threshold} (Short Spread, Beta={hedge_ratio:.2f})"
-                    ))
-                    # Signal to Long B
-                    signals.append(Signal(
-                        symbol=asset_b,
-                        signal_type=SignalType.BUY,
-                        price=price_b,
-                        quantity=qty_b,
-                        timestamp=current_date,
-                        confidence=self.params['min_confidence'],
-                        reason=f"Pair {asset_a}-{asset_b} Z-Score {current_z:.2f} > {self.z_threshold} (Short Spread, Beta={hedge_ratio:.2f})"
-                    ))
-                    
-                # Long Spread: Long A, Short B
+                    signals.append(Signal(asset_a, SignalType.SELL, price_a, current_date, 
+                                        quantity=qty_a, reason=f"Z={current_z:.2f} Beta={beta:.2f} AI={ai_confidence:.2f}"))
+                    signals.append(Signal(asset_b, SignalType.BUY, price_b, current_date, 
+                                        quantity=qty_b, reason=f"Z={current_z:.2f} Beta={beta:.2f} AI={ai_confidence:.2f}"))
+                                        
                 elif current_z < -self.z_threshold and is_cointegrated:
-                    # Signal to Long A
-                    signals.append(Signal(
-                        symbol=asset_a,
-                        signal_type=SignalType.BUY,
-                        price=price_a,
-                        quantity=qty_a,
-                        timestamp=current_date,
-                        confidence=self.params['min_confidence'],
-                        reason=f"Pair {asset_a}-{asset_b} Z-Score {current_z:.2f} < -{self.z_threshold} (Long Spread, Beta={hedge_ratio:.2f})"
-                    ))
-                    # Signal to Short B
-                    signals.append(Signal(
-                        symbol=asset_b,
-                        signal_type=SignalType.SELL,
-                        price=price_b,
-                        quantity=qty_b,
-                        timestamp=current_date,
-                        confidence=self.params['min_confidence'],
-                        reason=f"Pair {asset_a}-{asset_b} Z-Score {current_z:.2f} < -{self.z_threshold} (Long Spread, Beta={hedge_ratio:.2f})"
-                    ))
+                    signals.append(Signal(asset_a, SignalType.BUY, price_a, current_date, 
+                                        quantity=qty_a, reason=f"Z={current_z:.2f} Beta={beta:.2f} AI={ai_confidence:.2f}"))
+                    signals.append(Signal(asset_b, SignalType.SELL, price_b, current_date, 
+                                        quantity=qty_b, reason=f"Z={current_z:.2f} Beta={beta:.2f} AI={ai_confidence:.2f}"))
                 
-                # Exit Logic (Mean Reversion) - Check if Z-score crossed zero
+                # Exit Logic (Mean Reversion)
                 elif abs(current_z) <= 0.5:
-                     # Check if we have positions to close
-                     if asset_a in self.positions:
-                         pos_a = self.positions[asset_a]
-                         if pos_a.quantity != 0:
-                             signals.append(Signal(
-                                 symbol=asset_a, 
-                                 signal_type=SignalType.SELL if pos_a.quantity > 0 else SignalType.BUY, 
-                                 price=price_a, 
-                                 timestamp=current_date, 
-                                 reason=f"Mean Reversion (Z={current_z:.2f})"
-                             ))
-                     
-                     if asset_b in self.positions:
-                         pos_b = self.positions[asset_b]
-                         if pos_b.quantity != 0:
-                             signals.append(Signal(
-                                 symbol=asset_b, 
-                                 signal_type=SignalType.SELL if pos_b.quantity > 0 else SignalType.BUY, 
-                                 price=price_b, 
-                                 timestamp=current_date, 
-                                 reason=f"Mean Reversion (Z={current_z:.2f})"
-                             ))
+                     for symbol, pos in [(asset_a, self.positions.get(asset_a)), 
+                                       (asset_b, self.positions.get(asset_b))]:
+                         if pos and pos.quantity != 0:
+                             signal_type = SignalType.SELL if pos.quantity > 0 else SignalType.BUY
+                             signals.append(Signal(symbol, signal_type, 
+                                                 df_a.iloc[-1]['close'] if symbol == asset_a else df_b.iloc[-1]['close'], 
+                                                 current_date, reason=f"Mean Reversion (Z={current_z:.2f})"))
                      
             except Exception as e:
                 logger.error(f"Error processing pair {asset_a}-{asset_b}: {e}")

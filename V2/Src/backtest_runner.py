@@ -14,11 +14,24 @@ logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
 
 def run_backtest():
+    # Determine active symbols first
+    strategy_temp = get_strategy_instance()
+    active_symbols = MarketDataConfig.SYMBOLS.copy()
+
+    if isinstance(strategy_temp, get_strategy_instance('PAIR_TRADING').__class__):
+        if 'pairs' in strategy_temp.params and strategy_temp.params['pairs']:
+            pair_symbols = set()
+            for p in strategy_temp.params['pairs']:
+                pair_symbols.add(p[0])
+                pair_symbols.add(p[1])
+            active_symbols = list(pair_symbols)
+    # Add other strategy overrides here if needed
+    
     logger.info("\n" + "=" * 80)
     logger.info("BACKTEST CONFIGURATION")
     logger.info("=" * 80)
     logger.info(f"Strategy:           {StrategyConfig.DEFAULT_STRATEGY}")
-    logger.info(f"Symbols:            {', '.join(MarketDataConfig.SYMBOLS)}")
+    logger.info(f"Symbols:            {', '.join(active_symbols)}")
     logger.info(f"Lookback Days:      {MarketDataConfig.LOOKBACK_DAYS}")
     logger.info(f"Fetch Interval:     {MarketDataConfig.FETCH_INTERVAL}")
     logger.info(f"Signal Interval:    {MarketDataConfig.SIGNAL_INTERVAL}")
@@ -33,29 +46,15 @@ def run_backtest():
         return
     
     # Load configuration
-    symbols = MarketDataConfig.SYMBOLS.copy()
+    symbols = active_symbols
     
     # ✅ Add market index if strategy requires it
-    strategy_temp = get_strategy_instance()
     if hasattr(strategy_temp, 'params'):
         if 'market_index' in strategy_temp.params:
             market_index = strategy_temp.params['market_index']
             if market_index and market_index not in symbols:
                 symbols.append(market_index)
                 logger.info(f"📊 Adding market index for filter: {market_index}")
-        
-        # ✅ Add Pair Trading symbols
-        if 'pairs' in strategy_temp.params and strategy_temp.params['pairs']:
-            pair_symbols = set()
-            for p in strategy_temp.params['pairs']:
-                pair_symbols.add(p[0])
-                pair_symbols.add(p[1])
-            
-            # Override symbols list for pair trading to ensure we only fetch what's needed
-            # (or append if we want to keep others, but usually we just want the pairs)
-            if isinstance(strategy_temp, get_strategy_instance('PAIR_TRADING').__class__):
-                 symbols = list(pair_symbols)
-                 logger.info(f"👥 Pair Trading Mode: Fetching {symbols}")
     
     end_date = datetime.now()
     start_date = end_date - timedelta(days=MarketDataConfig.LOOKBACK_DAYS)
@@ -235,15 +234,18 @@ def run_backtest():
     logger.info("BACKTEST RESULTS")
     logger.info("=" * 80)
     
+    logger.info("OPEN POSITIONS")
+    logger.info("-" * 80)
     if engine.positions:
-        logger.info("OPEN POSITIONS")
-        logger.info("-" * 80)
         for symbol, pos in engine.positions.items():
-            current_price = pos.current_price
-            pnl = pos.unrealized_pnl
-            pnl_pct = (pnl / (pos.entry_price * abs(pos.quantity))) * 100 if pos.entry_price else 0
-            logger.info(f"{symbol}: Qty: {pos.quantity} | Entry: {pos.entry_price:.2f} | Current: {current_price:.2f} | PnL: {pnl:,.2f} ({pnl_pct:.2f}%)")
-        logger.info("-" * 80)
+            if pos.quantity != 0:
+                current_price = pos.current_price
+                pnl = pos.unrealized_pnl
+                pnl_pct = (pnl / (pos.entry_price * abs(pos.quantity))) * 100 if pos.entry_price else 0
+                logger.info(f"{symbol}: Qty: {pos.quantity} | Entry: {pos.entry_price:.2f} | Current: {current_price:.2f} | PnL: {pnl:,.2f} ({pnl_pct:.2f}%)")
+    else:
+        logger.info("No open positions.")
+    logger.info("-" * 80)
 
     logger.info(f"Initial Capital:    ₹{BacktestConfig.INITIAL_CAPITAL:,.2f}")
     logger.info(f"Final Value:        ₹{results['final_value']:,.2f}")
