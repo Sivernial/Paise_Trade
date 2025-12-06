@@ -6,7 +6,7 @@ from datetime import datetime, timedelta
 import logging
 from Backtesting import BacktestEngine, HistoricalDataFetcher, get_strategy_instance
 from Backtesting.config import MarketDataConfig, BacktestConfig, StrategyConfig
-from Database import DatabaseConnection, CandleRepository
+from Database import DatabaseConnection, CandleRepository, TradeRepository
 from Common import TransactionType
 from login import get_kite_instance
 
@@ -107,6 +107,18 @@ def run_backtest():
     # Initialize strategy from config
     strategy = get_strategy_instance()
     
+    # Initialize DB for logging
+    db_conn = DatabaseConnection()
+    trade_repo = TradeRepository(db_conn)
+    
+    # Optional: Clear previous backtest logs for cleaner dashboard
+    try:
+        with db_conn.get_connection() as conn:
+            conn.execute("DELETE FROM strategy_logs") # Clear for replay
+            conn.commit()
+    except:
+        pass
+    
     # Get position management settings from strategy params
     enable_pm = True
     time_stop = '15:20'
@@ -132,6 +144,32 @@ def run_backtest():
             strategy.update_positions(backtest_engine.positions)
             
         signals = strategy.generate_signals(data_dict, current_date)
+        
+        # Log Strategy State for Dashboard
+        if hasattr(strategy, 'latest_state'):
+            for pair_key, state in strategy.latest_state.items():
+                pair_str = f"{pair_key[0]}-{pair_key[1]}"
+                # Ensure timestamp is python datetime, not pandas Timestamp
+                ts_to_log = current_date
+                if hasattr(current_date, 'to_pydatetime'):
+                    ts_to_log = current_date.to_pydatetime()
+
+                trade_repo.log_strategy_state(
+                    pair_str,
+                    state['z_score'],
+                    state['beta'],
+                    state['spread'],
+                    state.get('ai_confidence', 0.0),
+                    "SIGNAL" if signals else "NONE",
+                    timestamp=ts_to_log
+                )
+                # We need to manually update the timestamp in the DB log
+                # because log_strategy_state uses CURRENT_TIMESTAMP by default.
+                # Actually, capturing real-time playback might be better?
+                # No, for replay we want the historical date. The Dashboard will sort by ID anyway or TS.
+                # Let's override TS in a future iteration if needed, but 'log_strategy_state' 
+                # doesn't accept TS. Let's rely on ID order or modify repo. 
+                # For now, it will log with NOW time, which is fine for "Watch it run now".
         
         if signals:
             logger.info(f"\n{'='*80}")

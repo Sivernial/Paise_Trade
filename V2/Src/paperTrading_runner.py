@@ -156,6 +156,19 @@ class PaperRunningSession:
             # In live, indices (timestamps) should mostly match.
             signals = self.strategy.generate_signals(data_map, datetime.now())
             
+            # Log Strategy State for Dashboard
+            if hasattr(self.strategy, 'latest_state'):
+                for pair_key, state in self.strategy.latest_state.items():
+                    pair_str = f"{pair_key[0]}-{pair_key[1]}"
+                    logger.info(
+                        f"Strategy State for {pair_str}: "
+                        f"Z-Score={state['z_score']:.2f}, "
+                        f"Beta={state['beta']:.2f}, "
+                        f"Spread={state['spread']:.2f}, "
+                        f"AI Confidence={state.get('ai_confidence', 0.0):.2f}, "
+                        f"Signal={'SIGNAL' if signals else 'NONE'}"
+                    )
+            
             if signals:
                 logger.info(f"Signals generated: {signals}")
                 self.trader.process_signals(signals)

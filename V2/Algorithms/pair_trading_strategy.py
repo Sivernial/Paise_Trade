@@ -42,6 +42,7 @@ class PairTradingStrategy(BaseStrategy):
             self.kf_registry[pair] = KalmanFilterReg(delta=1e-4, R=1e-3)
             
         self.last_processed: Dict[Tuple[str, str], datetime] = {}
+        self.latest_state: Dict[Tuple[str, str], dict] = {} # For Dashboard Logging
         
         # Load AI Model
         self.model = None
@@ -178,25 +179,37 @@ class PairTradingStrategy(BaseStrategy):
                 if current_z > self.z_threshold: raw_signal = 1
                 elif current_z < -self.z_threshold: raw_signal = -1
                 
-                if self.model and raw_signal != 0:
-                    # Extract Features
-                    # Pass DataFrames!
+                if self.model: # Always run AI check if model exists, even for tracking confidence on non-signals?
+                    # Actually better to run it only on potential signals or ALWAYS to show in Dashboard?
+                    # For Dashboard, we want to see AI Score constantly if possible, but calculating features every bar is fast enough.
+                    # Let's run it always if we have features, to populate dashboard.
                     features = FeatureEngineer.extract_features(
                         window_a_df, window_b_df, spread_series, current_z, beta, adf_stat
                     )
+                    
                     if features:
-                        features['Signal_Dir'] = raw_signal
-                        # Prepare DF for prediction
-                        X_pred = pd.DataFrame([features])
-                        # Ensure columns match training (handled by DF names if consistent)
-                        # Predict
-                        probs = self.model.predict_proba(X_pred)[0]
-                        ai_confidence = probs[1] # Prob of Class 1 (Profit)
-                        
-                        # Filter
-                        if ai_confidence < 0.6: # Threshold
-                            # logger.info(f"🤖 AI REJECTED Signal {asset_a}-{asset_b} (Conf: {ai_confidence:.2f})")
-                            continue # SKIP TRADE
+                         # We need a direction to query the model. 
+                         # If raw_signal is 0, let's assume we are checking "If we were to trade now".
+                         # Or just default 0.
+                         features['Signal_Dir'] = raw_signal if raw_signal != 0 else 0 
+                         
+                         X_pred = pd.DataFrame([features])
+                         probs = self.model.predict_proba(X_pred)[0]
+                         ai_confidence = probs[1]
+                         
+                # Log State
+                self.latest_state[pair_key] = {
+                    'z_score': current_z,
+                    'beta': beta,
+                    'spread': spread_series.iloc[-1],
+                    'ai_confidence': ai_confidence,
+                    'timestamp': current_date
+                }
+                
+                if self.model and raw_signal != 0:
+                     # Filter logic from before
+                     if ai_confidence < 0.6: 
+                         continue 
 
                 # Beta Guardrails (Avoid extreme leverage)
                 if not (0.2 <= beta <= 4.0):

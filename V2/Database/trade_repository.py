@@ -86,3 +86,23 @@ class TradeRepository:
                 'win_rate': (row[1] / row[0] * 100) if row[0] else 0.0
             }
 
+    def log_strategy_state(self, pair: str, z_score: float, beta: float, spread: float, ai_conf: float = 0.0, signal_type: str = "NONE", timestamp: datetime = None):
+        """
+        Log strategy internal state for dashboard.
+        """
+        try:
+            with self.db.get_connection() as conn:
+                cursor = conn.cursor()
+                if timestamp:
+                    cursor.execute('''
+                        INSERT INTO strategy_logs (pair, z_score, beta, spread, ai_confidence, signal_type, timestamp)
+                        VALUES (?, ?, ?, ?, ?, ?, ?)
+                    ''', (pair, z_score, beta, spread, ai_conf, signal_type, timestamp))
+                else:
+                    cursor.execute('''
+                        INSERT INTO strategy_logs (pair, z_score, beta, spread, ai_confidence, signal_type)
+                        VALUES (?, ?, ?, ?, ?, ?)
+                    ''', (pair, z_score, beta, spread, ai_conf, signal_type))
+                conn.commit()
+        except Exception as e:
+            print(f"Error logging strategy state: {e}")

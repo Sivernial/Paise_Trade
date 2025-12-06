@@ -68,6 +68,18 @@ class DatabaseConnection:
                     average_price REAL
                 );
                 
+                CREATE TABLE IF NOT EXISTS strategy_logs (
+                    id INTEGER PRIMARY KEY AUTOINCREMENT,
+                    timestamp DATETIME DEFAULT CURRENT_TIMESTAMP,
+                    pair TEXT,
+                    z_score REAL,
+                    beta REAL,
+                    spread REAL,
+                    ai_confidence REAL,
+                    signal_type TEXT, -- 'BUY', 'SELL', 'NONE'
+                    metadata TEXT -- JSON for extra fields
+                );
+                
                 CREATE INDEX IF NOT EXISTS idx_candles_symbol 
                 ON historical_candles(symbol, timestamp);
                 
@@ -76,5 +88,7 @@ class DatabaseConnection:
                 
                 CREATE INDEX IF NOT EXISTS idx_orders_symbol 
                 ON orders(symbol, timestamp);
+                
+                CREATE INDEX IF NOT EXISTS idx_logs_ts 
+                ON strategy_logs(timestamp);
             ''')
-
