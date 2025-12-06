@@ -106,9 +106,9 @@ class StrategyConfig:
     }
 
     PAIR_TRADING = {
-        'pairs': [('SBIN', 'HDFCBANK')],
+        'pairs': [('ACC', 'AMBUJACEM')],
         'z_score_threshold': 2.0,
-        'lookback_window': 20,
+        'lookback_window': 60,
         'stop_loss_z': 4.0,  # Stop if spread diverges too much
         'take_profit_z': 0.0, # Exit at mean
         'min_confidence': 0.8,

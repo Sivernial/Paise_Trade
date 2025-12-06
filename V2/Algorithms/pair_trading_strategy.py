@@ -3,7 +3,9 @@ import pandas as pd
 import numpy as np
 from datetime import datetime
 from .base_strategy import BaseStrategy
-from Common import Signal, SignalType
+from Common.enums import SignalType
+from Common import Signal
+from Common.quant_utils import calculate_hedge_ratio, calculate_adf_statistic
 import logging
 
 logger = logging.getLogger(__name__)
@@ -52,6 +54,33 @@ class PairTradingStrategy(BaseStrategy):
         z_score = (spread - mean_spread) / std_spread
         
         return spread.iloc[-1], z_score.iloc[-1]
+    
+    def calculate_dynamic_zscore(self, series_a: pd.Series, series_b: pd.Series) -> Tuple[float, float, float, float]:
+        """
+        Calculate Spread and Z-Score using Dynamic Hedge Ratio
+        Spread = A - beta * B
+        """
+        if len(series_a) != len(series_b):
+            min_len = min(len(series_a), len(series_b))
+            series_a = series_a.iloc[-min_len:]
+            series_b = series_b.iloc[-min_len:]
+        
+        # Calculate dynamic hedge ratio on the window
+        beta = calculate_hedge_ratio(series_a, series_b)
+        
+        # Calculate spread
+        spread = series_a - beta * series_b
+        
+        # Z-Score
+        mean_spread = spread.mean()
+        std_spread = spread.std()
+        
+        z_score = (spread.iloc[-1] - mean_spread) / std_spread if std_spread != 0 else 0
+        
+        # ADF Test on the spread
+        adf_stat = calculate_adf_statistic(spread)
+        
+        return spread.iloc[-1], z_score, beta, adf_stat
 
     def generate_signals(self, data: Dict[str, pd.DataFrame], 
                         current_date: datetime) -> List[Signal]:
@@ -69,107 +98,120 @@ class PairTradingStrategy(BaseStrategy):
                 continue
             
             try:
-                current_spread, current_z = self.calculate_spread_zscore(
-                    df_a['close'], df_b['close']
+                # Use longer history for ADF and Hedge Ratio calculation to be stable
+                # Using 2x lookback for calculation window if available, else lookback
+                calc_window = min(len(df_a), self.lookback * 2)
+                window_a = df_a['close'].iloc[-calc_window:]
+                window_b = df_b['close'].iloc[-calc_window:]
+                
+                current_spread, current_z, hedge_ratio, adf_stat = self.calculate_dynamic_zscore(
+                    window_a, window_b
                 )
                 
                 if pd.isna(current_z):
                     continue
-                
+                    
+                # Store hedge ratio context (optional for debugging)
+                # print(f"Pair {asset_a}-{asset_b} | Beta: {hedge_ratio:.3f} | ADF: {adf_stat:.3f} | Z: {current_z:.2f}")
+
                 price_a = df_a.iloc[-1]['close']
                 price_b = df_b.iloc[-1]['close']
                 
+                # Check Cointegration (ADF critical value approx -2.57 for 10%, -2.86 for 5%)
+                # Relaxed threshold for backtest signals
+                is_cointegrated = adf_stat < -1.94 
+                
+                if not is_cointegrated:
+                    # If not cointegrated, avoid entering new positions, but allow exits
+                    pass
+                
+                # Sanity Check for Hedge Ratio (Assume positive correlation for Banks)
+                if not (0.2 <= hedge_ratio <= 4.0):
+                    # logger.warning(f"Unstable Beta {hedge_ratio:.2f} for {asset_a}-{asset_b}")
+                    continue
+
                 # Entry Logic
-                # Short Spread: Short A, Long B (Expect spread to decrease)
-                if current_z > self.z_threshold:
+                # Short Spread: Short A, Long B (Weighted by hedge ratio)
+                # But engine supports integer quantities. 
+                # Simplification: Trade 1 unit of A and beta units of B? 
+                # Or equal value adjusted by beta?
+                # For engine simplicity: 
+                # Qty A = 1 * BaseQty, Qty B = Beta * (Price A / Price B) * BaseQty matches value?
+                # Actually, spread = A - beta*B. To hedge, if we Short 1 unit of A, we Long beta units of B.
+                
+                # Qty A = Base Qty (approx 5000 INR value / 1000 price = 5)
+                base_qty = 5
+                qty_a = base_qty 
+                qty_b = max(1, int(round(base_qty * hedge_ratio)))
+
+                if current_z > self.z_threshold and is_cointegrated:
                     # Signal to Short A
                     signals.append(Signal(
                         symbol=asset_a,
                         signal_type=SignalType.SELL,
                         price=price_a,
+                        quantity=qty_a,
                         timestamp=current_date,
                         confidence=self.params['min_confidence'],
-                        reason=f"Pair {asset_a}-{asset_b} Z-Score {current_z:.2f} > {self.z_threshold} (Short Spread)"
+                        reason=f"Pair {asset_a}-{asset_b} Z-Score {current_z:.2f} > {self.z_threshold} (Short Spread, Beta={hedge_ratio:.2f})"
                     ))
                     # Signal to Long B
                     signals.append(Signal(
                         symbol=asset_b,
                         signal_type=SignalType.BUY,
                         price=price_b,
+                        quantity=qty_b,
                         timestamp=current_date,
                         confidence=self.params['min_confidence'],
-                        reason=f"Pair {asset_a}-{asset_b} Z-Score {current_z:.2f} > {self.z_threshold} (Short Spread)"
+                        reason=f"Pair {asset_a}-{asset_b} Z-Score {current_z:.2f} > {self.z_threshold} (Short Spread, Beta={hedge_ratio:.2f})"
                     ))
                     
-                # Long Spread: Long A, Short B (Expect spread to increase)
-                elif current_z < -self.z_threshold:
+                # Long Spread: Long A, Short B
+                elif current_z < -self.z_threshold and is_cointegrated:
                     # Signal to Long A
                     signals.append(Signal(
                         symbol=asset_a,
                         signal_type=SignalType.BUY,
                         price=price_a,
+                        quantity=qty_a,
                         timestamp=current_date,
                         confidence=self.params['min_confidence'],
-                        reason=f"Pair {asset_a}-{asset_b} Z-Score {current_z:.2f} < -{self.z_threshold} (Long Spread)"
+                        reason=f"Pair {asset_a}-{asset_b} Z-Score {current_z:.2f} < -{self.z_threshold} (Long Spread, Beta={hedge_ratio:.2f})"
                     ))
                     # Signal to Short B
                     signals.append(Signal(
                         symbol=asset_b,
                         signal_type=SignalType.SELL,
                         price=price_b,
+                        quantity=qty_b,
                         timestamp=current_date,
                         confidence=self.params['min_confidence'],
-                        reason=f"Pair {asset_a}-{asset_b} Z-Score {current_z:.2f} < -{self.z_threshold} (Long Spread)"
+                        reason=f"Pair {asset_a}-{asset_b} Z-Score {current_z:.2f} < -{self.z_threshold} (Long Spread, Beta={hedge_ratio:.2f})"
                     ))
                 
-                # Exit Logic (Mean Reversion or Stop Loss)
-                # Note: The engine handles exits if we send opposite signals.
-                # Ideally, we should check current position status, but here we just emit signals based on Z-Score.
-                # The engine might need logic to close specific pairs, but standard BUY/SELL works if we just reverse.
-                
-                # If Z-Score is near zero (Mean Reversion Exit)
-                elif abs(current_z) <= 0.5: # Close to mean (relaxed to 0.5 to ensure capture)
+                # Exit Logic (Mean Reversion) - Check if Z-score crossed zero
+                elif abs(current_z) <= 0.5:
                      # Check if we have positions to close
                      if asset_a in self.positions:
                          pos_a = self.positions[asset_a]
-                         # If Long A, Sell A
-                         if pos_a.quantity > 0:
+                         if pos_a.quantity != 0:
                              signals.append(Signal(
                                  symbol=asset_a, 
-                                 signal_type=SignalType.SELL, 
+                                 signal_type=SignalType.SELL if pos_a.quantity > 0 else SignalType.BUY, 
                                  price=price_a, 
                                  timestamp=current_date, 
-                                 reason=f"Pair {asset_a}-{asset_b} Mean Reversion (Z={current_z:.2f})"
-                             ))
-                         # If Short A, Buy A
-                         elif pos_a.quantity < 0:
-                             signals.append(Signal(
-                                 symbol=asset_a, 
-                                 signal_type=SignalType.BUY, 
-                                 price=price_a, 
-                                 timestamp=current_date, 
-                                 reason=f"Pair {asset_a}-{asset_b} Mean Reversion (Z={current_z:.2f})"
+                                 reason=f"Mean Reversion (Z={current_z:.2f})"
                              ))
                      
                      if asset_b in self.positions:
                          pos_b = self.positions[asset_b]
-                         # If Long B, Sell B
-                         if pos_b.quantity > 0:
+                         if pos_b.quantity != 0:
                              signals.append(Signal(
                                  symbol=asset_b, 
-                                 signal_type=SignalType.SELL, 
+                                 signal_type=SignalType.SELL if pos_b.quantity > 0 else SignalType.BUY, 
                                  price=price_b, 
                                  timestamp=current_date, 
-                                 reason=f"Pair {asset_a}-{asset_b} Mean Reversion (Z={current_z:.2f})"
-                             ))
-                         # If Short B, Buy B
-                         elif pos_b.quantity < 0:
-                             signals.append(Signal(
-                                 symbol=asset_b, 
-                                 signal_type=SignalType.BUY, 
-                                 price=price_b, 
-                                 timestamp=current_date, 
-                                 reason=f"Pair {asset_a}-{asset_b} Mean Reversion (Z={current_z:.2f})"
+                                 reason=f"Mean Reversion (Z={current_z:.2f})"
                              ))
                      
             except Exception as e:

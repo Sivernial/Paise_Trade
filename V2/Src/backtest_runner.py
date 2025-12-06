@@ -132,7 +132,7 @@ def run_backtest():
         if hasattr(strategy, 'update_positions'):
             strategy.update_positions(backtest_engine.positions)
             
-        signals = strategy.generate_signals(strategy_data, current_date)
+        signals = strategy.generate_signals(data_dict, current_date)
         
         if signals:
             logger.info(f"\n{'='*80}")
@@ -150,8 +150,8 @@ def run_backtest():
                     # If pos.quantity < 0, we proceed to BUY (Cover Short)
                 
                 price = signal.price
-                # Use configured position size
-                quantity = int(BacktestConfig.POSITION_SIZE / price)
+                # Use configured position size or signal quantity
+                quantity = signal.quantity if signal.quantity > 0 else int(BacktestConfig.POSITION_SIZE / price)
                 
                 # If covering short, we might want to match the short quantity exactly?
                 # For now, let's just use standard position size logic or close entire short.
@@ -210,7 +210,8 @@ def run_backtest():
                 else:
                     # No position, Open Short
                     price = signal.price
-                    quantity = int(BacktestConfig.POSITION_SIZE / price)
+                    # Use configured position size or signal quantity
+                    quantity = signal.quantity if signal.quantity > 0 else int(BacktestConfig.POSITION_SIZE / price)
                     
                     if quantity > 0:
                         order_id = backtest_engine.place_order(
@@ -233,6 +234,17 @@ def run_backtest():
     logger.info("\n" + "=" * 80)
     logger.info("BACKTEST RESULTS")
     logger.info("=" * 80)
+    
+    if engine.positions:
+        logger.info("OPEN POSITIONS")
+        logger.info("-" * 80)
+        for symbol, pos in engine.positions.items():
+            current_price = pos.current_price
+            pnl = pos.unrealized_pnl
+            pnl_pct = (pnl / (pos.entry_price * abs(pos.quantity))) * 100 if pos.entry_price else 0
+            logger.info(f"{symbol}: Qty: {pos.quantity} | Entry: {pos.entry_price:.2f} | Current: {current_price:.2f} | PnL: {pnl:,.2f} ({pnl_pct:.2f}%)")
+        logger.info("-" * 80)
+
     logger.info(f"Initial Capital:    ₹{BacktestConfig.INITIAL_CAPITAL:,.2f}")
     logger.info(f"Final Value:        ₹{results['final_value']:,.2f}")
     logger.info(f"Total Return:       {results['total_return']:.2%}")
