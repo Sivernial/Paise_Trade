@@ -187,7 +187,7 @@ def run_backtest():
         if hasattr(strategy, 'update_positions'):
             strategy.update_positions(backtest_engine.positions)
             
-        signals = strategy.generate_signals(data_dict, current_date)
+        signals = strategy.generate_signals(data_dict, current_date, capital=backtest_engine.get_portfolio_value())
         
         # Log Strategy State for Dashboard
         if hasattr(strategy, 'latest_state'):

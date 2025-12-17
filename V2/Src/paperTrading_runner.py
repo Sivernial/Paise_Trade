@@ -194,7 +194,8 @@ LOOKBACK_WINDOW = StrategyConfig.PAIR_TRADING['lookback_window']
             # Run strategy
             # Note: generate_signals might expect data aligned by index. 
             # In live, indices (timestamps) should mostly match.
-            signals = self.strategy.generate_signals(data_map, datetime.now())
+            current_equity = self.trader.get_status()['total_value']
+            signals = self.strategy.generate_signals(data_map, datetime.now(), capital=current_equity)
             
             # Log Strategy State for Dashboard
             if hasattr(self.strategy, 'latest_state'):

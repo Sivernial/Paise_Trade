@@ -181,7 +181,9 @@ class LiveRunningSession:
     def run_strategy(self):
         try:
             data_map = {s: self.history[s]['close'] for s in SYMBOLS}
-            signals = self.strategy.generate_signals(data_map, datetime.now())
+            # Use Total Portfolio Value for Risk Sizing (Equity Model)
+            current_equity = self.trader.get_status()['total_value']
+            signals = self.strategy.generate_signals(data_map, datetime.now(), capital=current_equity)
             
             # Log Strategy State for Dashboard
             if hasattr(self.strategy, 'latest_state'):

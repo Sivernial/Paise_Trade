@@ -5,8 +5,10 @@ from datetime import datetime
 from .base_strategy import BaseStrategy
 from Common.enums import SignalType
 from Common import Signal
-from Common import Signal
 from Common.quant_utils import calculate_adf_statistic, KalmanFilterReg
+from Common.risk_manager import RiskManager
+from Common.news_filter import NewsFilter
+from Technical_Indicators.static import StaticIndicators
 from AI.feature_engineer import FeatureEngineer
 import joblib
 import os
@@ -34,6 +36,11 @@ class PairTradingStrategy(BaseStrategy):
         self.lookback = self.params['lookback_window']
         self.stop_z = self.params['stop_loss_z']
         self.exit_z = self.params['take_profit_z']
+        
+        # Risk Manager
+        self.risk_manager = RiskManager()
+        # News Filter
+        self.news_filter = NewsFilter()
         
         # Registry for Kalman Filters (one per pair)
         self.kf_registry = {}
@@ -108,7 +115,7 @@ class PairTradingStrategy(BaseStrategy):
         return spread.iloc[-1], z_score, beta, adf_stat
 
     def generate_signals(self, data: Dict[str, pd.DataFrame], 
-                        current_date: datetime) -> List[Signal]:
+                        current_date: datetime, capital: float = 100000) -> List[Signal]:
         signals = []
         
         for asset_a, asset_b in self.pairs:
@@ -215,22 +222,42 @@ class PairTradingStrategy(BaseStrategy):
                 if not (0.2 <= beta <= 4.0):
                     continue
 
-                base_qty = 5
-                qty_a = base_qty
-                qty_b = max(1, int(round(base_qty * beta)))
+                # RISK MANAGEMENT
+                # Calculate ATR for Asset A
+                atr_a = StaticIndicators.atr(
+                    window_a_df['high'], 
+                    window_a_df['low'], 
+                    window_a_df['close'], 
+                    period=14
+                ).iloc[-1]
+                
+                # Calculate Quantity using Risk Manager (Dynamic Sizing)
+                # We size Asset A based on volatility, and assume Asset B balances it.
+                # Note: We technically should check portfolio correlation here, but strategy is pair-isolated.
+                qty_a = self.risk_manager.calculate_size(capital, price_a, atr_a)
+                
+                # Ensure minimum viable quantity
+                qty_a = max(1, qty_a)
+                
+                # Balance leg B
+                qty_b = max(1, int(round(qty_a * beta)))
 
                 # Generate Signals
                 if current_z > self.z_threshold and is_cointegrated:
-                    signals.append(Signal(asset_a, SignalType.SELL, price_a, current_date, 
-                                        quantity=qty_a, reason=f"Z={current_z:.2f} Beta={beta:.2f} AI={ai_confidence:.2f}"))
-                    signals.append(Signal(asset_b, SignalType.BUY, price_b, current_date, 
-                                        quantity=qty_b, reason=f"Z={current_z:.2f} Beta={beta:.2f} AI={ai_confidence:.2f}"))
+                    # Check News Filter (Blocks Trade if Bad News)
+                    if self.news_filter.can_trade(asset_a) and self.news_filter.can_trade(asset_b):
+                        signals.append(Signal(asset_a, SignalType.SELL, price_a, current_date, 
+                                            quantity=qty_a, reason=f"Z={current_z:.2f} Beta={beta:.2f} AI={ai_confidence:.2f}"))
+                        signals.append(Signal(asset_b, SignalType.BUY, price_b, current_date, 
+                                            quantity=qty_b, reason=f"Z={current_z:.2f} Beta={beta:.2f} AI={ai_confidence:.2f}"))
                                         
                 elif current_z < -self.z_threshold and is_cointegrated:
-                    signals.append(Signal(asset_a, SignalType.BUY, price_a, current_date, 
-                                        quantity=qty_a, reason=f"Z={current_z:.2f} Beta={beta:.2f} AI={ai_confidence:.2f}"))
-                    signals.append(Signal(asset_b, SignalType.SELL, price_b, current_date, 
-                                        quantity=qty_b, reason=f"Z={current_z:.2f} Beta={beta:.2f} AI={ai_confidence:.2f}"))
+                    # Check News Filter
+                    if self.news_filter.can_trade(asset_a) and self.news_filter.can_trade(asset_b):
+                        signals.append(Signal(asset_a, SignalType.BUY, price_a, current_date, 
+                                            quantity=qty_a, reason=f"Z={current_z:.2f} Beta={beta:.2f} AI={ai_confidence:.2f}"))
+                        signals.append(Signal(asset_b, SignalType.SELL, price_b, current_date, 
+                                            quantity=qty_b, reason=f"Z={current_z:.2f} Beta={beta:.2f} AI={ai_confidence:.2f}"))
                 
                 # Exit Logic (Mean Reversion)
                 elif abs(current_z) <= 0.5:

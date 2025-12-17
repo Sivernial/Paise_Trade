@@ -1,6 +1,133 @@
-# Paise Trade V2 - Algorithmic Trading System
+# Paise Trade V2: AI-Powered Pair Trading System 🚀
 
-A modular, clean, and efficient algorithmic trading system for Indian markets using Zerodha Kite API.
+V2 is a sophisticated **Quant-AI Hybrid Trading System** designed for the Indian Markets (NSE).
+It leverages Cointegration, Kalman Filters, and Machine Learning (Gradient Boosting) to identify and trade statistical arbitrage opportunities.
+
+## 🌟 Key Features
+
+### 🧠 AI Neural Engine
+
+- **Dynamic Pair Scanner**: Automatically scans 500+ NSE pairs daily to find the most cointegrated assets (ADF Test < -3.5).
+- **Machine Learning Filter**: Uses XGBoost/GradientBoosting to validate signals, reducing false positives.
+- **Smart Features**: Hurst Exponent, Bollinger Width, Relative Volume (RVOL), and Z-Score Velocity.
+- **Confidence Scoring**: Trades are only taken if AI Probability > 70%.
+
+### ⚡️ Execution & Optimization
+
+- **Kalman Filters**: Adaptive hedge ratios that adjust to market volatility in real-time.
+- **Optuna Tuning**: Automated hyperparameter optimization to find the "Sweet Spot" (Lookback, Stop Loss) for each market regime.
+- **Multi-Mode**: Backtesting, Paper Trading, and Live Trading (Zerodha Kite).
+- **Live Dashboard**: Streamlit-based UI to monitor P&L, Signals, and Strategy State in real-time.
+
+---
+
+## 📂 Project Structure
+
+```
+V2/
+├── AI/                 # ML Models, Feature Engineering, Training Scripts
+├── Algorithms/         # Pair Trading Strategy, Kalman Filters
+├── Backtesting/        # Engine, Data Fetcher, Config
+├── Common/             # Shared Utilities (Scanner, Quant Utils)
+├── Dashboard/          # Streamlit Real-time Monitor `app.py`
+├── Database/           # SQLite Storage for Trades & Analytics
+├── Optimization/       # Optuna Hyperparameter Tuner
+├── Src/                # RUNNERS (Entry Points)
+│   ├── backtest_runner.py    # Run Simulation
+│   ├── paperTrading_runner.py# Run Paper Trading
+│   └── liveTrading_runner.py # Run Live Trading
+└── requirements.txt    # Dependencies
+```
+
+---
+
+## 🚀 Quick Start
+
+### 1. Installation
+
+```bash
+pip install -r V2/requirements.txt
+```
+
+### 2. Login (Zerodha)
+
+```bash
+cd V2/Src
+python login.py
+```
+
+_(Follow the Selenium interaction or enter credentials if prompted)_
+
+### 3. Run Optimization (Optional but Recommended)
+
+Finds the best parameters (Lookback, Z-Score) for today's market.
+
+```bash
+cd V2
+python Optimization/optuna_tuner.py
+```
+
+### 4. Start Trading
+
+**Mode A: Backtest (Simulation)**
+Simulate strategy over past 30 days.
+
+```bash
+cd V2/Src
+python backtest_runner.py
+```
+
+**Mode B: Paper Trading (Real-Time Mock)**
+Trade with fake money on live signals.
+
+```bash
+cd V2/Src
+python paperTrading_runner.py
+```
+
+**Mode C: Live Trading (Real Money)**
+Real execution via Kite API.
+
+```bash
+cd V2/Src
+python liveTrading_runner.py
+# Type 'YES' to confirm
+```
+
+### 5. Launch Dashboard
+
+Monitor your trading in real-time.
+
+```bash
+cd V2
+streamlit run Dashboard/app.py
+```
+
+---
+
+## 📊 Strategy Logic
+
+1.  **Scan**: System Identifies Pairs (e.g., `ACC` vs `AMBUJACEM`) with high cointegration.
+2.  **Monitor**: Tracks the Spread (Price A - Hedge Ratio \* Price B).
+3.  **Signal**:
+    - If Spread Z-Score > 2.0 (Deviation).
+    - AND AI Model Confidence > 0.7 (Validation).
+    - AND Beta is stable.
+4.  **Execute**: Buy Long Asset / Sell Short Asset (Market Neutral).
+5.  **Exit**: When Spread returns to Mean (Z-Score = 0) OR Stop Loss is hit.
+
+---
+
+## 🔮 Future Roadmap (Profitability)
+
+1.  **Risk Parity**: Volatility-weighted position sizing.
+2.  **VWAP Execution**: Minimize slippage on large orders.
+3.  **Sentiment Analysis**: Filter trades based on News API.
+4.  **Portfolio Optimizer**: Rebalance capital between multiple pairs.
+
+---
+
+_Disclaimer: Algorithmic trading involves significant risk. Use this software at your own risk._
 
 ## Architecture
 
