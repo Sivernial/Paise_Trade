@@ -8,6 +8,7 @@ from Backtesting import BacktestEngine, HistoricalDataFetcher, get_strategy_inst
 from Backtesting.config import MarketDataConfig, BacktestConfig, StrategyConfig
 from Database import DatabaseConnection, CandleRepository, TradeRepository
 from Common import TransactionType
+from Common.quant_utils import KalmanFilterReg
 from login import get_kite_instance
 
 logging.basicConfig(level=logging.INFO)
@@ -18,13 +19,56 @@ def run_backtest():
     strategy_temp = get_strategy_instance()
     active_symbols = MarketDataConfig.SYMBOLS.copy()
 
+    # DYNAMIC PAIR SELECTION
     if isinstance(strategy_temp, get_strategy_instance('PAIR_TRADING').__class__):
-        if 'pairs' in strategy_temp.params and strategy_temp.params['pairs']:
-            pair_symbols = set()
-            for p in strategy_temp.params['pairs']:
-                pair_symbols.add(p[0])
-                pair_symbols.add(p[1])
-            active_symbols = list(pair_symbols)
+        logger.info("⚡️ Running Dynamic Pair Scanner...")
+        try:
+            from Common.pair_scanner import scan_pairs
+            # Scan for pairs (using 60 days to suffice for recent correlation)
+            scanned_df = scan_pairs(days=60)
+            
+            if scanned_df is not None and not scanned_df.empty:
+                # Select Top 4 Unique Pairs
+                top_pairs = []
+                seen_assets = set()
+                
+                for _, row in scanned_df.iterrows():
+                    if len(top_pairs) >= 4: break
+                    
+                    a, b = row['Asset A'], row['Asset B']
+                    # Ensure diversification - avoid reusing same asset if possible?
+                    # For now strictly following scan rank
+                    top_pairs.append((a, b))
+                
+                # Update Strategy Params
+                strategy_temp.params['pairs'] = top_pairs
+                
+                # CRITICAL: Re-initialize internal state (pairs list and KF registry)
+                strategy_temp.pairs = top_pairs
+                strategy_temp.kf_registry = {}
+                for pair in top_pairs:
+                    strategy_temp.kf_registry[pair] = KalmanFilterReg(delta=1e-4, R=1e-3)
+
+                logger.info(f"✅ Selected Top Dynamic Pairs: {top_pairs}")
+                
+                # Re-build active_symbols
+                pair_symbols = set()
+                for p in top_pairs:
+                    pair_symbols.add(p[0])
+                    pair_symbols.add(p[1])
+                active_symbols = list(pair_symbols)
+                
+        except Exception as e:
+            logger.error(f"Dynamic Scanning Failed: {e}. Falling back to Config.")
+            
+        # Fallback to config if scanning failed or empty
+        if not 'pairs' in strategy_temp.params or not strategy_temp.params['pairs']:
+             if 'pairs' in strategy_temp.params and strategy_temp.params['pairs']:
+                pair_symbols = set()
+                for p in strategy_temp.params['pairs']:
+                    pair_symbols.add(p[0])
+                    pair_symbols.add(p[1])
+                active_symbols = list(pair_symbols)
     # Add other strategy overrides here if needed
     
     logger.info("\n" + "=" * 80)
@@ -104,8 +148,8 @@ def run_backtest():
         logger.error("No data fetched")
         return
     
-    # Initialize strategy from config
-    strategy = get_strategy_instance()
+    # Initialize strategy (Use the one configured above)
+    strategy = strategy_temp
     
     # Initialize DB for logging
     db_conn = DatabaseConnection()

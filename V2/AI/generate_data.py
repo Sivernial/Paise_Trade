@@ -49,7 +49,7 @@ def generate_training_data():
     ]
     lookback_days = 60 # More history for training
     future_window = 12 # Look forward 12 bars (e.g. 3 hours on 15m) for labeling
-    profit_threshold = 0.003 # 0.2% Target for binary label
+    profit_threshold = 0.005 # 0.5% Target for binary label (Stricter)
     
     end_date = datetime.now()
     start_date = end_date - timedelta(days=lookback_days)

@@ -12,6 +12,7 @@ from PaperTrader import PaperTrader
 from DataStream_Engine import DataStream
 from DataStream_Engine.aggregator import TickAggregator
 from Algorithms import PairTradingStrategy
+from Database import DatabaseConnection, TradeRepository # Added
 from Backtesting.config import BacktestConfig, StrategyConfig
 from Backtesting.data_fetcher import HistoricalDataFetcher
 from login import get_kite_instance
@@ -25,23 +26,62 @@ SYMBOLS = list(PAIR)
 INTERVAL_MIN = 15
 LOOKBACK_WINDOW = StrategyConfig.PAIR_TRADING['lookback_window']
 
-class PaperRunningSession:
     def __init__(self):
         self.kite = get_kite_instance()
         self.history: Dict[str, pd.DataFrame] = {}
         self.token_map = {} 
         self.reverse_token_map = {}
+        self.db = DatabaseConnection() # Init DB
+        self.trade_repo = TradeRepository(self.db) # Init Repo
         
-        # Init components
+        # --- DYNAMIC PAIR SCANNING ---
+        logger.info("⚡️ Running Dynamic Pair Scanner...")
+        self.pairs = []
+        try:
+            from Common.pair_scanner import scan_pairs
+            scanned_df = scan_pairs(days=60)
+            
+            if scanned_df is not None and not scanned_df.empty:
+                count = 0
+                for _, row in scanned_df.iterrows():
+                    if count >= 4: break
+                    self.pairs.append((row['Asset A'], row['Asset B']))
+                    count += 1
+                logger.info(f"✅ Selected Dynamic Pairs: {self.pairs}")
+        except Exception as e:
+            logger.error(f"Scanner Failed: {e}")
+            
+        if not self.pairs:
+             logger.warning("Falling back to Config Pairs")
+             self.pairs = StrategyConfig.PAIR_TRADING['pairs']
+
+        # Update Global SYMBOLS based on dynamic pairs
+        global SYMBOLS
+        unique_syms = set()
+        for p in self.pairs:
+            unique_syms.add(p[0])
+            unique_syms.add(p[1])
+        SYMBOLS = list(unique_syms)
+        logger.info(f"Active Symbols: {SYMBOLS}")
+
         # Init components
         strategy_params = {
-            'pairs': [PAIR],
+            'pairs': self.pairs,
             'z_score_threshold': StrategyConfig.PAIR_TRADING['z_score_threshold'],
             'lookback_window': LOOKBACK_WINDOW,
             'stop_loss_z': StrategyConfig.PAIR_TRADING.get('stop_loss_z', 4.0),
             'take_profit_z': StrategyConfig.PAIR_TRADING.get('take_profit_z', 0.0)
         }
         self.strategy = PairTradingStrategy(params=strategy_params)
+        
+        # CRITICAL: Re-initialize internal state (pairs list and KF registry)
+        # Because we passed params, __init__ might suffice, but let's be safe if scanned
+        self.strategy.pairs = self.pairs
+        self.strategy.kf_registry = {}
+        from Common.quant_utils import KalmanFilterReg
+        for pair in self.pairs:
+            self.strategy.kf_registry[pair] = KalmanFilterReg(delta=1e-4, R=1e-3)
+            
         self.trader = PaperTrader(self.strategy, initial_capital=BacktestConfig.INITIAL_CAPITAL)
         self.aggregator = TickAggregator(interval_minutes=INTERVAL_MIN)
         
@@ -167,6 +207,14 @@ class PaperRunningSession:
                         f"Spread={state['spread']:.2f}, "
                         f"AI Confidence={state.get('ai_confidence', 0.0):.2f}, "
                         f"Signal={'SIGNAL' if signals else 'NONE'}"
+                    )
+                    self.trade_repo.log_strategy_state(
+                        pair_str,
+                        state['z_score'],
+                        state['beta'],
+                        state['spread'],
+                        state.get('ai_confidence', 0.0),
+                        'SIGNAL' if signals else 'NONE'
                     )
             
             if signals:

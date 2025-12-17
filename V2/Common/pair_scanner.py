@@ -121,8 +121,11 @@ def scan_pairs(days=90):
     print(res_df.head(20).to_string(index=False))
     
     # Save to CSV
-    res_df.to_csv("V2/pair_scan_results.csv", index=False)
-    print("\nResults saved to V2/pair_scan_results.csv")
+    output_path = os.path.join(os.path.dirname(os.path.dirname(__file__)), "pair_scan_results.csv")
+    res_df.to_csv(output_path, index=False)
+    print(f"\nResults saved to {output_path}")
+    
+    return res_df
 
 if __name__ == "__main__":
     scan_pairs()

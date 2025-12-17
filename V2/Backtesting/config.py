@@ -1,9 +1,12 @@
 class MarketDataConfig:
     # NIFTY 50 stocks + NIFTY 50 index for market filter
     SYMBOLS = [
-        "SBIN", 
+        "ACC", "AMBUJACEM",
+        "TMPV", "M&M",
+        "SBIN", "PNB",
+        "INFY", "TCS",
         "HDFCBANK",
-        "NIFTY 50"  # ✅ Market index for filter (will try "NIFTY 50" or "NIFTY50")
+        "NIFTY 50"  # ✅ Market index for filter
     ]
 
 
@@ -106,7 +109,12 @@ class StrategyConfig:
     }
 
     PAIR_TRADING = {
-        'pairs': [('ACC', 'AMBUJACEM')],
+        'pairs': [
+            ('ACC', 'AMBUJACEM'),      # Cement
+            ('TMPV', 'M&M'),           # Auto
+            ('SBIN', 'PNB'),           # PSU Banks
+            ('INFY', 'TCS')            # IT
+        ],
         'z_score_threshold': 2.0,
         'lookback_window': 60,
         'stop_loss_z': 4.0,  # Stop if spread diverges too much

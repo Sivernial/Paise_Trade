@@ -208,7 +208,7 @@ class PairTradingStrategy(BaseStrategy):
                 
                 if self.model and raw_signal != 0:
                      # Filter logic from before
-                     if ai_confidence < 0.6: 
+                     if ai_confidence < 0.7: 
                          continue 
 
                 # Beta Guardrails (Avoid extreme leverage)

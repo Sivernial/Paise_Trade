@@ -46,19 +46,56 @@ class LiveRunningSession:
         self.reverse_token_map = {}
         
         # Init components
-        # Init components
         # Database
         self.db = DatabaseConnection()
         self.trade_repo = TradeRepository(self.db)
         
+        # --- DYNAMIC PAIR SCANNING ---
+        logger.info("⚡️ Running Dynamic Pair Scanner...")
+        self.pairs = []
+        try:
+            from Common.pair_scanner import scan_pairs
+            scanned_df = scan_pairs(days=60)
+            
+            if scanned_df is not None and not scanned_df.empty:
+                count = 0
+                for _, row in scanned_df.iterrows():
+                    if count >= 4: break
+                    self.pairs.append((row['Asset A'], row['Asset B']))
+                    count += 1
+                logger.info(f"✅ Selected Dynamic Pairs: {self.pairs}")
+        except Exception as e:
+            logger.error(f"Scanner Failed: {e}")
+            
+        if not self.pairs:
+             logger.warning("Falling back to Config Pairs")
+             self.pairs = StrategyConfig.PAIR_TRADING['pairs']
+
+        # Update Global SYMBOLS based on dynamic pairs
+        global SYMBOLS
+        unique_syms = set()
+        for p in self.pairs:
+            unique_syms.add(p[0])
+            unique_syms.add(p[1])
+        SYMBOLS = list(unique_syms)
+        logger.info(f"Active Symbols: {SYMBOLS}")
+        
         strategy_params = {
-            'pairs': [PAIR],
+            'pairs': self.pairs,
             'z_score_threshold': StrategyConfig.PAIR_TRADING['z_score_threshold'],
             'lookback_window': LOOKBACK_WINDOW,
             'stop_loss_z': StrategyConfig.PAIR_TRADING.get('stop_loss_z', 4.0),
             'take_profit_z': StrategyConfig.PAIR_TRADING.get('take_profit_z', 0.0)
         }
         self.strategy = PairTradingStrategy(params=strategy_params)
+        
+        # CRITICAL: Re-initialize internal state (pairs list and KF registry)
+        self.strategy.pairs = self.pairs
+        self.strategy.kf_registry = {}
+        from Common.quant_utils import KalmanFilterReg
+        for pair in self.pairs:
+            self.strategy.kf_registry[pair] = KalmanFilterReg(delta=1e-4, R=1e-3)
+            
         self.trader = LiveTrader(self.kite, self.strategy) # LiveTrader takes kite + strategy
         self.aggregator = TickAggregator(interval_minutes=INTERVAL_MIN)
         
@@ -99,7 +136,9 @@ class LiveRunningSession:
         stream.add_callback(self.on_tick)
         self.aggregator.add_callback(self.on_candle_closed)
         
-        logger.info(f"Starting LIVE Trading for {PAIR}")
+        # Join pairs for display
+        pair_disp = ", ".join([f"{p[0]}-{p[1]}" for p in self.pairs])
+        logger.info(f"Starting LIVE Trading for {pair_disp}")
         stream.start()
         
         try:
@@ -143,6 +182,27 @@ class LiveRunningSession:
         try:
             data_map = {s: self.history[s]['close'] for s in SYMBOLS}
             signals = self.strategy.generate_signals(data_map, datetime.now())
+            
+            # Log Strategy State for Dashboard
+            if hasattr(self.strategy, 'latest_state'):
+                for pair_key, state in self.strategy.latest_state.items():
+                    pair_str = f"{pair_key[0]}-{pair_key[1]}"
+                    logger.info(
+                        f"Strategy State for {pair_str}: "
+                        f"Z-Score={state['z_score']:.2f}, "
+                        f"Beta={state['beta']:.2f}, "
+                        f"Spread={state['spread']:.2f}, "
+                        f"AI Confidence={state.get('ai_confidence', 0.0):.2f}, "
+                        f"Signal={'SIGNAL' if signals else 'NONE'}"
+                    )
+                    self.trade_repo.log_strategy_state(
+                        pair_str,
+                        state['z_score'],
+                        state['beta'],
+                        state['spread'],
+                        state.get('ai_confidence', 0.0),
+                        'SIGNAL' if signals else 'NONE'
+                    )
             
             if signals:
                 logger.info(f"Signals: {signals}")

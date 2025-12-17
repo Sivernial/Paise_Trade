@@ -37,6 +37,25 @@ class FeatureEngineer:
         return series.rolling(window=period).apply(slope_func, raw=True).fillna(0)
 
     @staticmethod
+    def calculate_hurst(series: pd.Series, max_lag=20) -> float:
+        """
+        Calculate Hurst Exponent to test for mean reversion.
+        H < 0.5: Mean Reverting
+        H ~ 0.5: Geometric Brownian Motion (Random Walk)
+        H > 0.5: Trending
+        """
+        try:
+            if len(series) < max_lag:
+                return 0.5
+                
+            lags = range(2, max_lag)
+            tau = [np.sqrt(np.std(np.subtract(series[lag:], series[:-lag]))) for lag in lags]
+            poly = np.polyfit(np.log(lags), np.log(tau), 1)
+            return poly[0] * 2.0
+        except:
+            return 0.5
+
+    @staticmethod
     def extract_features(df_a: pd.DataFrame, df_b: pd.DataFrame, 
                         spread: pd.Series, z_score: float, 
                         beta: float, adf_stat: float) -> dict:
@@ -44,7 +63,7 @@ class FeatureEngineer:
         Extract features for a specific point in time (latest).
         """
         # Ensure sufficient history
-        if len(df_a) < 20:
+        if len(df_a) < 50:
             return {}
             
         # 1. Price Features
@@ -57,8 +76,16 @@ class FeatureEngineer:
         
         # 3. Spread Features
         spread_mom = spread.diff().iloc[-1]
-        spread_ma = spread.rolling(5).mean().iloc[-1]
-        dist_ma = spread.iloc[-1] - spread_ma
+        spread_ma = spread.rolling(20).mean().iloc[-1] # Slower MA
+        spread_std = spread.rolling(20).std().iloc[-1]
+        dist_ma = (spread.iloc[-1] - spread_ma) / (spread_std + 1e-6) # Z-Score like
+        
+        # Bollinger Band Width (Squeeze/Expansion)
+        bb_width = (2 * 2 * spread_std) / (abs(spread_ma) + 1e-6)
+        
+        # Hurst Exponent (Reversion Strength) w/ small optimization window
+        # Using last 100 bars for Hurst
+        hurst = FeatureEngineer.calculate_hurst(spread.iloc[-100:].values)
         
         # 4. Correlation (Rolling)
         corr_14 = df_a['close'].rolling(14).corr(df_b['close']).iloc[-1]
@@ -83,6 +110,8 @@ class FeatureEngineer:
             'Z_Score': z_score,
             'Beta': beta,
             'ADF_Stat': adf_stat,
+            'Hurst': hurst,
+            'BB_Width': bb_width,
             'RSI_A': rsi_a,
             'RSI_B': rsi_b,
             'Volatility_A': vol_a,
