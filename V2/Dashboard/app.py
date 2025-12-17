@@ -1,3 +1,4 @@
+
 import streamlit as st
 import sqlite3
 import pandas as pd
@@ -113,17 +114,103 @@ else:
                 plot_bgcolor='rgba(0,0,0,0)'
             )
             
-            st.plotly_chart(fig, use_container_width=True)
+            st.plotly_chart(fig, width="stretch")
 
     st.markdown("---")
     st.subheader("📝 Recent Trade Signals")
     
     # Trade Log
     conn = get_connection()
-    trades_df = pd.read_sql("SELECT * FROM trades ORDER BY id DESC LIMIT 10", conn)
-    conn.close()
+    try:
+        trades_df = pd.read_sql("SELECT * FROM trades ORDER BY id DESC LIMIT 10", conn)
+        if not trades_df.empty:
+            st.dataframe(trades_df)
+        else:
+            st.info("No trades executed yet.")
+    except Exception as e:
+        st.error(f"Error loading trades: {e}")
+    finally:
+        conn.close()
+
+    st.markdown("---")
+    st.subheader("🧠 Portfolio Optimizer (Markowitz)")
     
-    if not trades_df.empty:
-        st.dataframe(trades_df)
-    else:
-        st.info("No trades executed yet.")
+    with st.expander("Run Portfolio Optimization", expanded=False):
+        st.markdown("""
+        **Modern Portfolio Theory (MPT):**
+        Finds the optimal allocation of capital between your tracked assets to **Maximize Sharpe Ratio**.
+        """)
+        
+        if st.button("Optimize Allocation"):
+            try:
+                # Lazy Import to avoid issues if Common not in path
+                import sys
+                sys.path.append(os.path.abspath(os.path.join(os.path.dirname(__file__), '..')))
+                from Common.portfolio_optimizer import PortfolioOptimizer
+                from Backtesting.config import PortfolioConfig
+                
+                with st.spinner("Fetching data and optimizing..."):
+                    # 1. Fetch Price History from Candles Table
+                    conn = get_connection()
+                    # Get symbols first
+                    syms = pd.read_sql("SELECT DISTINCT symbol FROM historical_candles", conn)['symbol'].tolist()
+                    
+                    if not syms:
+                        st.error("No price data found in 'historical_candles' table. Run Backtest/PaperTrader first.")
+                    else:
+                        # Fetch all candles (Limit to last 90 days for relevance)
+                        query_candles = """
+                            SELECT symbol, timestamp, close 
+                            FROM historical_candles 
+                            WHERE timestamp >= date('now', '-90 days')
+                        """
+                        price_df_raw = pd.read_sql(query_candles, conn)
+                        conn.close()
+                        
+                        if price_df_raw.empty:
+                            st.error("Not enough history for optimization.")
+                        else:
+                            # Pivot: Index=Date, Cols=Symbol
+                            price_df_raw['timestamp'] = pd.to_datetime(price_df_raw['timestamp'])
+                            price_matrix = price_df_raw.pivot_table(index='timestamp', columns='symbol', values='close')
+                            price_matrix = price_matrix.dropna()
+                            
+                            if price_matrix.shape[0] < 30:
+                                st.warning(f"Warning: Only {price_matrix.shape[0]} data points available. Optimization may be unstable.")
+                            
+                            # 2. Run Optimizer
+                            optimizer = PortfolioOptimizer(risk_free_rate=PortfolioConfig.RISK_FREE_RATE)
+                            result = optimizer.optimize(
+                                price_matrix, 
+                                min_weight=PortfolioConfig.MIN_ASSET_WEIGHT,
+                                max_weight=PortfolioConfig.MAX_ASSET_WEIGHT
+                            )
+                            
+                            if result:
+                                weights = result['weights']
+                                metrics = result['metrics']
+                                
+                                # 3. Display Results
+                                c1, c2 = st.columns([1, 1])
+                                
+                                with c1:
+                                    st.success(f"**Optimal Sharpe Ratio: {metrics['sharpe_ratio']:.2f}**")
+                                    st.write(f"Expected Annual Return: {metrics['expected_return']:.1%}")
+                                    st.write(f"Annual Volatility: {metrics['volatility']:.1%}")
+                                
+                                with c2:
+                                    # Pie Chart
+                                    labels = list(weights.keys())
+                                    values = list(weights.values())
+                                    
+                                    fig_pie = go.Figure(data=[go.Pie(labels=labels, values=values, hole=.3)])
+                                    fig_pie.update_layout(margin=dict(t=0, b=0, l=0, r=0), height=250)
+                                    st.plotly_chart(fig_pie, width="stretch")
+                                    
+                                st.caption("Note: This optimizes the underlying assets, not the pairs directly.")
+                                
+                            else:
+                                st.error("Optimization failed.")
+                                
+            except Exception as e:
+                st.error(f"Error during optimization: {e}")

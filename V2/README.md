@@ -62,6 +62,12 @@ _(Follow the Selenium interaction or enter credentials if prompted)_
 
 Finds the best parameters (Lookback, Z-Score) for today's market.
 
+### 6. Portfolio Optimization (New)
+
+- **Markowitz Model**: Allocates capital to Maximize Sharpe Ratio.
+- **Constraints**: define Min/Max weight per asset.
+- **Dashboard UI**: One-click optimization of tracked assets.
+
 ```bash
 cd V2
 python Optimization/optuna_tuner.py

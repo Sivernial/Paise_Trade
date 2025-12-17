@@ -7,7 +7,7 @@ from Common.enums import SignalType
 from Common import Signal
 from Common.quant_utils import calculate_adf_statistic, KalmanFilterReg
 from Common.risk_manager import RiskManager
-from Common.news_filter import NewsFilter
+from Market_Intelligence.sentiment_analyzer import MarketIntelligence
 from Technical_Indicators.static import StaticIndicators
 from AI.feature_engineer import FeatureEngineer
 import joblib
@@ -22,7 +22,7 @@ class PairTradingStrategy(BaseStrategy):
         default_params = {
             'pairs': [], # List of tuples [('AssetA', 'AssetB')]
             'z_score_threshold': 2.0,
-            'lookback_window': 20,
+            'lookback_window': 40, # Tuned to 40 for balance
             'stop_loss_z': 4.0,
             'take_profit_z': 0.0,
             'min_confidence': 0.8
@@ -39,8 +39,8 @@ class PairTradingStrategy(BaseStrategy):
         
         # Risk Manager
         self.risk_manager = RiskManager()
-        # News Filter
-        self.news_filter = NewsFilter()
+        # Market Intelligence (Public Info)
+        self.market_intel = MarketIntelligence()
         
         # Registry for Kalman Filters (one per pair)
         self.kf_registry = {}
@@ -244,20 +244,54 @@ class PairTradingStrategy(BaseStrategy):
 
                 # Generate Signals
                 if current_z > self.z_threshold and is_cointegrated:
-                    # Check News Filter (Blocks Trade if Bad News)
-                    if self.news_filter.can_trade(asset_a) and self.news_filter.can_trade(asset_b):
-                        signals.append(Signal(asset_a, SignalType.SELL, price_a, current_date, 
-                                            quantity=qty_a, reason=f"Z={current_z:.2f} Beta={beta:.2f} AI={ai_confidence:.2f}"))
-                        signals.append(Signal(asset_b, SignalType.BUY, price_b, current_date, 
-                                            quantity=qty_b, reason=f"Z={current_z:.2f} Beta={beta:.2f} AI={ai_confidence:.2f}"))
+                    # Market Intelligence: Scale Size based on Sentiment
+                    # If sentiment is very negative for the asset we are buying (Leg B), reduce size.
+                    # Here we check both. If either is "Extreme Fear", we reduce size.
+                    
+                    sent_a = self.market_intel.get_sentiment(f"{asset_a} share news")
+                    sent_b = self.market_intel.get_sentiment(f"{asset_b} share news")
+                    
+                    # Default Multiplier
+                    size_multiplier = 1.0
+                    
+                    # If selling A (Leg 1), negative sentiment on A is actually good? 
+                    # No, usually in Pair Trading we want Mean Reversion, not momentum. 
+                    # Extreme news often breaks correlation. So we reduce risk on ANY extreme news.
+                    
+                    if sent_a['score'] < -0.5 or sent_b['score'] < -0.5:
+                        size_multiplier = 0.5 # Half size
+                        logger.info(f"⚠️ Reduced Size (0.5x) due to Negative Sentiment: {asset_a}={sent_a['score']:.2f}, {asset_b}={sent_b['score']:.2f}")
+                    elif sent_a['score'] < -0.2 or sent_b['score'] < -0.2:
+                        size_multiplier = 0.75 # 75% size
+                        
+                    # Apply Multiplier
+                    final_qty_a = max(1, int(qty_a * size_multiplier))
+                    final_qty_b = max(1, int(qty_b * size_multiplier))
+
+                    signals.append(Signal(asset_a, SignalType.SELL, price_a, current_date, 
+                                        quantity=final_qty_a, reason=f"Z={current_z:.2f} Beta={beta:.2f} Sent={size_multiplier}x"))
+                    signals.append(Signal(asset_b, SignalType.BUY, price_b, current_date, 
+                                        quantity=final_qty_b, reason=f"Z={current_z:.2f} Beta={beta:.2f} Sent={size_multiplier}x"))
                                         
                 elif current_z < -self.z_threshold and is_cointegrated:
-                    # Check News Filter
-                    if self.news_filter.can_trade(asset_a) and self.news_filter.can_trade(asset_b):
-                        signals.append(Signal(asset_a, SignalType.BUY, price_a, current_date, 
-                                            quantity=qty_a, reason=f"Z={current_z:.2f} Beta={beta:.2f} AI={ai_confidence:.2f}"))
-                        signals.append(Signal(asset_b, SignalType.SELL, price_b, current_date, 
-                                            quantity=qty_b, reason=f"Z={current_z:.2f} Beta={beta:.2f} AI={ai_confidence:.2f}"))
+                     # Market Intelligence Scaling
+                    sent_a = self.market_intel.get_sentiment(f"{asset_a} share news")
+                    sent_b = self.market_intel.get_sentiment(f"{asset_b} share news")
+                    
+                    size_multiplier = 1.0
+                    if sent_a['score'] < -0.5 or sent_b['score'] < -0.5:
+                        size_multiplier = 0.5
+                        logger.info(f"⚠️ Reduced Size (0.5x) due to Negative Sentiment")
+                    elif sent_a['score'] < -0.2 or sent_b['score'] < -0.2:
+                        size_multiplier = 0.75
+
+                    final_qty_a = max(1, int(qty_a * size_multiplier))
+                    final_qty_b = max(1, int(qty_b * size_multiplier))
+
+                    signals.append(Signal(asset_a, SignalType.BUY, price_a, current_date, 
+                                        quantity=final_qty_a, reason=f"Z={current_z:.2f} Beta={beta:.2f} Sent={size_multiplier}x"))
+                    signals.append(Signal(asset_b, SignalType.SELL, price_b, current_date, 
+                                        quantity=final_qty_b, reason=f"Z={current_z:.2f} Beta={beta:.2f} Sent={size_multiplier}x"))
                 
                 # Exit Logic (Mean Reversion)
                 elif abs(current_z) <= 0.5:

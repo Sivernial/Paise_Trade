@@ -13,7 +13,7 @@ class MarketDataConfig:
     EXCHANGE = "NSE"
     INDEX_EXCHANGE = "NSE"  # Some brokers use "NSE" or "INDICES" for index data
     INTERVAL = "5minute"
-    LOOKBACK_DAYS = 30
+    LOOKBACK_DAYS = 40 # Tuned for balance
     
     FETCH_INTERVAL = "5min"
     SIGNAL_INTERVAL = "15min"
@@ -64,6 +64,13 @@ class BacktestConfig:
     COMMISSION_RATE = 0.0005
 
 
+class PortfolioConfig:
+    RISK_FREE_RATE = 0.06 # India 10Y Bond Approx
+    MAX_ASSET_WEIGHT = 0.4 # Max 40% in one pair
+    MIN_ASSET_WEIGHT = 0.05 # Min 5%
+    REBALANCE_DAYS = 30
+
+
 class StrategyConfig:
     DEFAULT_STRATEGY = "PAIR_TRADING"
     
@@ -111,12 +118,12 @@ class StrategyConfig:
     PAIR_TRADING = {
         'pairs': [
             ('ACC', 'AMBUJACEM'),      # Cement
-            ('TMPV', 'M&M'),           # Auto
+            ('TATAMOTORS', 'M&M'),     # Auto
             ('SBIN', 'PNB'),           # PSU Banks
             ('INFY', 'TCS')            # IT
         ],
         'z_score_threshold': 2.0,
-        'lookback_window': 60,
+        'lookback_window': 40, # Balance between noise and lag
         'stop_loss_z': 4.0,  # Stop if spread diverges too much
         'take_profit_z': 0.0, # Exit at mean
         'min_confidence': 0.8,
