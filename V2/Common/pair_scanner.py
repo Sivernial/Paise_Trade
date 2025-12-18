@@ -10,7 +10,7 @@ sys.path.append(os.path.abspath(os.path.join(os.path.dirname(__file__), '..')))
 
 from Src.login import get_kite_instance
 from Backtesting.data_fetcher import HistoricalDataFetcher
-from Common.quant_utils import calculate_hedge_ratio, calculate_adf_statistic, calculate_half_life
+from Common.quant_utils import calculate_hedge_ratio, calculate_adf_statistic, calculate_half_life, calculate_hurst, count_zero_crossings
 
 # Define Sector Baskets
 SECTORS = {
@@ -87,6 +87,12 @@ def scan_pairs(days=90):
             # Half Life
             half_life = calculate_half_life(spread)
             
+            # Hurst Exponent (Mean Reversion Strength)
+            hurst = calculate_hurst(spread)
+            
+            # Zero Crossings (Trade Frequency)
+            zero_cross = count_zero_crossings(spread)
+            
             # Correlation
             corr = s_a.corr(s_b)
             
@@ -97,6 +103,8 @@ def scan_pairs(days=90):
                 'Beta': beta,
                 'ADF Stat': adf_stat,
                 'Half Life': half_life,
+                'Hurst': hurst,
+                'Zero Cross': zero_cross,
                 'Correlation': corr
             })
             
@@ -112,8 +120,17 @@ def scan_pairs(days=90):
 
     # Filter High Quality Pairs (ADF < -2.5 and Half Life > 0)
     # The more negative the ADF, the better.
-    res_df = res_df[res_df['Half Life'] > 0] 
-    res_df = res_df.sort_values(by='ADF Stat', ascending=True)
+    # Filter High Quality Pairs
+    # 1. Half Life > 0 (Valid)
+    # 2. Hurst < 0.5 (Mean Reverting)
+    # 3. Zero Cross > 12 (Tradeable frequency)
+    
+    res_df = res_df[res_df['Half Life'] > 0]
+    res_df = res_df[res_df['Hurst'] < 0.5]
+    res_df = res_df[res_df['Zero Cross'] > 12]
+    
+    # Sort by Hurst (Strength of Mean Reversion) then ADF
+    res_df = res_df.sort_values(by=['Hurst', 'ADF Stat'], ascending=[True, True])
     
     print("\n" + "="*80)
     print("TOP 20 COINTEGRATED PAIRS")

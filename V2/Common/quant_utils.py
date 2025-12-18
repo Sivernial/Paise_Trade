@@ -148,3 +148,34 @@ def calculate_dynamic_beta_kalman(series_y: pd.Series, series_x: pd.Series,
         betas.append(beta)
         
     return pd.Series(betas, index=series_y.index)
+
+def calculate_hurst(ts: pd.Series) -> float:
+    """
+    Calculate Hurst Exponent to determine long-term memory.
+    H < 0.5: Mean Reverting (Good for Pairs)
+    H = 0.5: Random Walk
+    H > 0.5: Trending
+    """
+    try:
+        ts = ts.values if hasattr(ts, 'values') else np.array(ts)
+        lags = range(2, 20)
+        tau = [np.sqrt(np.std(np.subtract(ts[lag:], ts[:-lag]))) for lag in lags]
+        poly = np.polyfit(np.log(lags), np.log(tau), 1)
+        return poly[0] * 2.0
+    except:
+        return 0.5
+
+def count_zero_crossings(spread: pd.Series) -> int:
+    """
+    Count how many times the spread crosses its own mean.
+    Higher crossings = Higher trade frequency opportunity.
+    """
+    try:
+        if len(spread) < 2: return 0
+        mean_val = spread.mean()
+        centered = spread - mean_val
+        # Sign changes indicate crossing
+        crossings = np.where(np.diff(np.sign(centered)))[0]
+        return len(crossings)
+    except:
+        return 0
