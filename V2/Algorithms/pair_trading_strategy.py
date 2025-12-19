@@ -142,6 +142,12 @@ class PairTradingStrategy(BaseStrategy):
                 window_a = window_a_df['close']
                 window_b = window_b_df['close']
                 
+                # Defensive Fix: Ensure indices are tz-naive for alignment
+                if window_a.index.tz is not None:
+                    window_a.index = window_a.index.tz_localize(None)
+                if window_b.index.tz is not None:
+                    window_b.index = window_b.index.tz_localize(None)
+                
                 # Update Kalman Filter to get Dynamic Beta
                 pair_key = (asset_a, asset_b)
                 current_time = current_date

@@ -96,6 +96,9 @@ class PaperRunningSession:
         for symbol in SYMBOLS:
             df = fetcher.fetch_historical_data(symbol, start_date, end_date, interval=f"{INTERVAL_MIN}min")
             if not df.empty:
+                # Force tz-naive for consistent alignment
+                if df.index.tz is not None:
+                    df.index = df.index.tz_localize(None)
                 self.history[symbol] = df.tail(LOOKBACK_WINDOW + 10) # Keep buffer
                 logger.info(f"Loaded {len(df)} bars for {symbol}")
             else:
@@ -169,6 +172,10 @@ class PaperRunningSession:
             logger.warning(f"Unknown token {token_or_symbol}")
             return
             
+        # Force tz-naive for incoming candles
+        if candle.index.tz is not None:
+            candle.index = candle.index.tz_localize(None)
+            
         logger.info(f"New Candle {symbol}: {candle.iloc[-1]['close']}")
         
         # Update History
@@ -190,7 +197,7 @@ class PaperRunningSession:
     def run_strategy(self):
         # Extract series
         try:
-            data_map = {s: self.history[s]['close'] for s in SYMBOLS}
+            data_map = {s: self.history[s] for s in SYMBOLS if s in self.history}
             
             # Run strategy
             # Note: generate_signals might expect data aligned by index. 

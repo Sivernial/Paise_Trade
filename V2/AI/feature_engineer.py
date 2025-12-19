@@ -91,7 +91,12 @@ class FeatureEngineer:
         hurst = FeatureEngineer.calculate_hurst(spread.iloc[-100:].values)
         
         # 4. Correlation (Rolling)
-        corr_14 = df_a['close'].rolling(14).corr(df_b['close']).iloc[-1]
+        # Defensive Fix: Ensure indices are tz-naive for alignment
+        s1 = df_a['close'].copy()
+        s2 = df_b['close'].copy()
+        if s1.index.tz is not None: s1.index = s1.index.tz_localize(None)
+        if s2.index.tz is not None: s2.index = s2.index.tz_localize(None)
+        corr_14 = s1.rolling(14).corr(s2).iloc[-1]
         
         # 5. Volume Features [NEW]
         vol_a_ma = df_a['volume'].rolling(20).mean().iloc[-1]
