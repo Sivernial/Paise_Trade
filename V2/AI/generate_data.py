@@ -18,38 +18,48 @@ from Algorithms.pair_trading_strategy import PairTradingStrategy
 from Backtesting.data_fetcher import HistoricalDataFetcher
 from Backtesting.config import MarketDataConfig
 from AI.feature_engineer import FeatureEngineer
+from Common.pair_scanner import scan_pairs, SECTORS
 from login import get_kite_instance
 import logging
 
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
 
+# Sector Mapping
+SECTOR_MAP = {k: i+1 for i, k in enumerate(sorted(SECTORS.keys()))}
+
+def get_sector_id(sym_a, sym_b):
+    # Find sector for asset A
+    sec_a = "OTHER"
+    for sec, syms in SECTORS.items():
+        if sym_a in syms:
+            sec_a = sec
+            break
+            
+    # Typically pairs are same sector, so we rely on A
+    return SECTOR_MAP.get(sec_a, 0) # 0 for Mixed/Other
+
 def generate_training_data():
     kite = get_kite_instance()
     fetcher = HistoricalDataFetcher(kite)
     
     # Configuration
-    # Expanded Universe (Nifty 50 Sector Pairs)
-    pairs = [
-        ('ACC', 'AMBUJACEM'),      # Cement
-        ('ULTRACEMCO', 'GRASIM'),
-        ('HDFCBANK', 'ICICIBANK'), # Banks
-        ('AXISBANK', 'SBIN'),
-        ('KOTAKBANK', 'HDFCBANK'),
-        ('INFY', 'TCS'),           # IT
-        ('HCLTECH', 'WIPRO'),
-        ('TECHM', 'TCS'),
-        ('TMPV', 'M&M'),     # Auto
-        ('HEROMOTOCO', 'BAJAJ-AUTO'),
-        ('MARUTI', 'TMPV'),
-        ('TATASTEEL', 'JINDALSTEL'), # Metals
-        ('HINDALCO', 'VEDL'),
-        ('SUNPHARMA', 'DRREDDY'),  # Pharma
-        ('CIPLA', 'SUNPHARMA')
-    ]
-    lookback_days = 60 # More history for training
-    future_window = 12 # Look forward 12 bars (e.g. 3 hours on 15m) for labeling
-    profit_threshold = 0.005 # 0.5% Target for binary label (Stricter)
+    # Dynamic Pair Selection (Top 50)
+    logger.info("Scanning for Top 50 correlated pairs...")
+    scanned_df = scan_pairs(days=120) # Use 4 months for robust correlation
+    
+    if scanned_df is None or scanned_df.empty:
+        logger.error("Scan failed. Using fallback pairs.")
+        pairs = [('ACC', 'AMBUJACEM'), ('INFY', 'TCS'), ('HDFCBANK', 'ICICIBANK')]
+    else:
+        # Take Top 50
+        top_pairs_df = scanned_df.head(50)
+        pairs = list(zip(top_pairs_df['Asset A'], top_pairs_df['Asset B']))
+        logger.info(f"Selected {len(pairs)} dynamic pairs: {pairs}")
+
+    lookback_days = 60 # History for training loop
+    future_window = 12 # Look forward 12 bars
+    profit_threshold = 0.005 # 0.5% Target
     
     end_date = datetime.now()
     start_date = end_date - timedelta(days=lookback_days)
@@ -135,8 +145,12 @@ def generate_training_data():
             current_adf = -3.0 # Mocking/Optimizing speed vs accuracy. 
             # Or call calculate_adf_statistic(spread_series) if fast enough
             
+            # Determine Sector
+            sector_id = get_sector_id(asset_a, asset_b)
+
             features = FeatureEngineer.extract_features(
-                window_a, window_b, spread_series, z_score, beta, current_adf
+                window_a, window_b, spread_series, z_score, beta, current_adf,
+                sector_id=sector_id
             )
             
             # --- SIGNAL CHECK ---

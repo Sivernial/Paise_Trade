@@ -1,5 +1,8 @@
 import pandas as pd
 import numpy as np
+from sklearn.feature_selection import RFE
+from sklearn.linear_model import LogisticRegression
+from sklearn.decomposition import PCA
 
 class FeatureEngineer:
     """
@@ -58,7 +61,7 @@ class FeatureEngineer:
     @staticmethod
     def extract_features(df_a: pd.DataFrame, df_b: pd.DataFrame, 
                         spread: pd.Series, z_score: float, 
-                        beta: float, adf_stat: float) -> dict:
+                        beta: float, adf_stat: float, sector_id: int = 0) -> dict:
         """
         Extract features for a specific point in time (latest).
         """
@@ -106,6 +109,17 @@ class FeatureEngineer:
         # Since we only get current Z, we can approx with Spread change magnitude normalized
         z_velocity = spread_mom / (atr_a + 1) # Approx
         
+        # 8. Statistical Moments (Distribution Shape) [WorldQuant: Complex Posterior]
+        rolling_window = spread.iloc[-30:] # Last 30 bars
+        skew = rolling_window.skew()
+        kurt = rolling_window.kurt()
+        
+        # 9. Cycle Analysis (FFT) [WorldQuant: Multi-level Cycles]
+        # Extract dominant frequency magnitude
+        fft_vals = np.abs(np.fft.rfft(rolling_window.values))
+        # Skip DC component (0)
+        dominant_cycle_mag = np.max(fft_vals[1:]) if len(fft_vals) > 1 else 0
+        
         features = {
             'Z_Score': z_score,
             'Beta': beta,
@@ -121,7 +135,11 @@ class FeatureEngineer:
             'Volume_Factor': vol_bf,
             'Is_Opening': is_opening,
             'Is_Closing': is_closing,
-            'Z_Velocity': z_velocity
+            'Z_Velocity': z_velocity,
+            'Spread_Skew': skew,
+            'Spread_Kurt': kurt,
+            'Cycle_Mag': dominant_cycle_mag,
+            'Sector_ID': sector_id
         }
         
         # Handle nan/inf
@@ -130,3 +148,25 @@ class FeatureEngineer:
                 features[k] = 0.0
                 
         return features
+
+    @staticmethod
+    def perform_rfe(X, y, n_features=10):
+        """
+        Recursive Feature Elimination (Shen et al. 2020).
+        Selects best features by recursively removing weakest ones.
+        """
+        model = LogisticRegression(solver='liblinear')
+        rfe = RFE(model, n_features_to_select=n_features)
+        fit = rfe.fit(X, y)
+        selected_cols = X.columns[fit.support_]
+        return selected_cols
+
+    @staticmethod
+    def perform_pca(X, n_components=0.95):
+        """
+        Principal Component Analysis.
+        Reduces dimensionality while keeping variance.
+        """
+        pca = PCA(n_components=n_components)
+        X_pca = pca.fit_transform(X)
+        return X_pca, pca

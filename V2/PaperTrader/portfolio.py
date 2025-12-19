@@ -218,9 +218,15 @@ class PaperPortfolio:
         return value
     
     def get_summary(self) -> dict:
+        # Create readable positions summary
+        pos_summary = {
+            sym: f"{pos.quantity} @ {pos.entry_price:.2f}" 
+            for sym, pos in self.positions.items()
+        }
         return {
             'cash': self.cash,
             'num_positions': len(self.positions),
-            'total_orders': len(self.orders)
+            'total_orders': len(self.orders),
+            'positions': pos_summary # Added
         }
 

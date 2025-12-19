@@ -12,15 +12,64 @@ from Src.login import get_kite_instance
 from Backtesting.data_fetcher import HistoricalDataFetcher
 from Common.quant_utils import calculate_hedge_ratio, calculate_adf_statistic, calculate_half_life, calculate_hurst, count_zero_crossings
 
+import yfinance as yf
+
 # Define Sector Baskets
 SECTORS = {
-    'AUTO': ['TATAMOTORS', 'MARUTI', 'M&M', 'BAJAJ-AUTO', 'HEROMOTOCO', 'EICHERMOT', 'ASHOKLEY', 'TVSMOTOR'],
+    'AUTO': ['TMCV', 'MARUTI', 'M&M', 'BAJAJ-AUTO', 'HEROMOTOCO', 'EICHERMOT', 'ASHOKLEY', 'TVSMOTOR'],
     'IT': ['TCS', 'INFY', 'HCLTECH', 'WIPRO', 'TECHM', 'LTIM', 'OFSS'],
     'BANKS': ['HDFCBANK', 'ICICIBANK', 'SBIN', 'KOTAKBANK', 'AXISBANK', 'INDUSINDBK'],
     'METALS': ['TATASTEEL', 'HINDALCO', 'JSWSTEEL', 'VEDL', 'JINDALSTEL', 'SAIL'],
     'CEMENT': ['ULTRACEMCO', 'GRASIM', 'ACC', 'AMBUJACEM'],
-    'PHARMA': ['SUNPHARMA', 'DRREDDY', 'CIPLA', 'DIVISLAB'],
+    'PHARMA': ['SUNPHARMA', 'DRREDDY', 'CIPLA', 'DIVISLAB', 'LUPIN', 'AUROPHARMA'],
+    'FMCG': ['ITC', 'HINDUNILVR', 'NESTLEIND', 'BRITANNIA', 'TATACONSUM', 'DABUR', 'MARICO'],
+    'POWER': ['NTPC', 'POWERGRID', 'TATAPOWER', 'ADANIPOWER', 'JSWENERGY'],
+    'OIL_GAS': ['RELIANCE', 'ONGC', 'BPCL', 'IOC', 'GAIL'],
+    'FINANCE': ['BAJFINANCE', 'BAJAJFINSV', 'CHOLAFIN', 'SHRIRAMFIN', 'MUTHOOTFIN', 'SBICARD'],
 }
+
+def fetch_fundamentals(symbols):
+    """
+    Fetch Fama-French Factors (Size, Value) using yfinance.
+    Returns dict: {symbol: {'market_cap': float, 'bm_ratio': float}}
+    """
+    print("Fetching Fundamentals (Fama-French Factors)...")
+    data = {}
+    
+    # Process in chunks to avoid URL length limits
+    chunk_size = 10
+    
+    # Add .NS suffix
+    ns_symbols = [s + ".NS" for s in symbols if not s.endswith(".NS")]
+    
+    try:
+        tickers = yf.Tickers(" ".join(ns_symbols))
+        
+        for sym in symbols:
+            try:
+                ns_sym = sym + ".NS"
+                info = tickers.tickers[ns_sym].info
+                
+                mkt_cap = info.get('marketCap', 0)
+                book_val = info.get('bookValue', 0)
+                price = info.get('currentPrice', 0)
+                
+                bm_ratio = 0
+                if price > 0 and book_val > 0:
+                    bm_ratio = book_val / price
+                    
+                data[sym] = {
+                    'market_cap': mkt_cap,
+                    'bm_ratio': bm_ratio
+                }
+            except Exception as e:
+                # Fallback or default
+                data[sym] = {'market_cap': 0, 'bm_ratio': 0}
+                
+    except Exception as e:
+        print(f"Fundamental Fetch Failed: {e}")
+        
+    return data
 
 def scan_pairs(days=90):
     kite = get_kite_instance()
@@ -37,6 +86,9 @@ def scan_pairs(days=90):
     
     # Remove duplicates
     all_symbols = list(set(all_symbols))
+    
+    # Fetch Fundamentals
+    fund_data = fetch_fundamentals(all_symbols)
     
     # Fetch Data
     data_map = {}

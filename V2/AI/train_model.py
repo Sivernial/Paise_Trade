@@ -38,7 +38,9 @@ def train_model():
         return
 
     # 3. Train/Test Split
-    X_train, X_test, y_train, y_test = train_test_split(X, y, test_size=0.20, random_state=42, shuffle=True)
+    # 3. Train/Test Split
+    # CRITICAL: Shuffle=False for Time Series validation [WorldQuant: Probabilistic not Deterministic, but order matters]
+    X_train, X_test, y_train, y_test = train_test_split(X, y, test_size=0.20, random_state=42, shuffle=False)
     
     # 4. Train Model - IMPROVED
     # Using GradientBoosting for better accuracy than RF

@@ -26,6 +26,7 @@ SYMBOLS = list(PAIR)
 INTERVAL_MIN = 15
 LOOKBACK_WINDOW = StrategyConfig.PAIR_TRADING['lookback_window']
 
+class PaperRunningSession:
     def __init__(self):
         self.kite = get_kite_instance()
         self.history: Dict[str, pd.DataFrame] = {}
