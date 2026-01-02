@@ -110,8 +110,7 @@ class OptunaTuner:
             'z_score_threshold': z_score_threshold,
             'lookback_window': lookback_window,
             'stop_loss_z': stop_loss_z,
-            'take_profit_z': take_profit_z,
-            'min_confidence': 0.7 # Keep AI strict
+            'take_profit_z': take_profit_z
         }
         
         strategy = PairTradingStrategy(params)

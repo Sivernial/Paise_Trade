@@ -47,10 +47,8 @@ def run_backtest():
                 strategy_temp.pairs = top_pairs
                 from collections import deque
                 strategy_temp.kf_registry = {}
-                strategy_temp.feature_history = {} # Added
                 for pair in top_pairs:
                     strategy_temp.kf_registry[pair] = KalmanFilterReg(delta=1e-4, R=1e-3)
-                    strategy_temp.feature_history[pair] = deque(maxlen=30) # Added
 
                 logger.info(f"✅ Selected Top Dynamic Pairs: {top_pairs}")
                 
@@ -206,7 +204,7 @@ def run_backtest():
                     state['z_score'],
                     state['beta'],
                     state['spread'],
-                    state.get('ai_confidence', 0.0),
+                    0.0, # Removed AI
                     "SIGNAL" if signals else "NONE",
                     timestamp=ts_to_log
                 )

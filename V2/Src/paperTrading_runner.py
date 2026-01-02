@@ -214,7 +214,6 @@ class PaperRunningSession:
                         f"Z-Score={state['z_score']:.2f}, "
                         f"Beta={state['beta']:.2f}, "
                         f"Spread={state['spread']:.2f}, "
-                        f"AI Confidence={state.get('ai_confidence', 0.0):.2f}, "
                         f"Signal={'SIGNAL' if signals else 'NONE'}"
                     )
                     self.trade_repo.log_strategy_state(
@@ -222,7 +221,7 @@ class PaperRunningSession:
                         state['z_score'],
                         state['beta'],
                         state['spread'],
-                        state.get('ai_confidence', 0.0),
+                        0.0, # Removed AI
                         'SIGNAL' if signals else 'NONE'
                     )
             

@@ -9,11 +9,6 @@ from Common.quant_utils import calculate_adf_statistic, KalmanFilterReg
 from Common.risk_manager import RiskManager
 from Market_Intelligence.sentiment_analyzer import MarketIntelligence
 from Technical_Indicators.static import StaticIndicators
-from AI.feature_engineer import FeatureEngineer
-from AI.inference import DeepInferenceEngine
-import joblib
-import os
-from collections import deque
 import logging
 
 logger = logging.getLogger(__name__)
@@ -38,8 +33,8 @@ class PairTradingStrategy(BaseStrategy):
         self.lookback = self.params['lookback_window']
         self.stop_z = self.params['stop_loss_z']
         self.exit_z = self.params['take_profit_z']
-        self.stop_loss = 0.05 # Added
-        self.take_profit = 0.02 # Added
+        self.stop_loss = 0.05
+        self.take_profit = 0.02
         
         # Risk Manager
         self.risk_manager = RiskManager()
@@ -47,21 +42,10 @@ class PairTradingStrategy(BaseStrategy):
         self.market_intel = MarketIntelligence()
         
         # Registry for Kalman Filters (one per pair)
-        self.kf_registry = {pair: KalmanFilterReg() for pair in self.pairs} # Updated
+        self.kf_registry = {pair: KalmanFilterReg() for pair in self.pairs}
             
         self.last_processed: Dict[Tuple[str, str], datetime] = {}
         self.latest_state: Dict[Tuple[str, str], dict] = {} # For Dashboard Logging
-        
-        # Feature History for LSTM (30 steps) # Added
-        self.feature_history = {pair: deque(maxlen=30) for pair in self.pairs} # Added
-        
-        # Load AI Model (Deep Learning) # Updated
-        try:
-            self.ai_model = DeepInferenceEngine()
-            logger.info("✅ Deep Learning Model Loaded")
-        except Exception as e:
-            logger.error(f"Failed to load AI Model: {e}")
-            self.ai_model = None
         
     def calculate_spread_zscore(self, series_a: pd.Series, series_b: pd.Series) -> Tuple[float, float]:
         """
@@ -192,35 +176,7 @@ class PairTradingStrategy(BaseStrategy):
                 if current_z > self.z_threshold: raw_signal = 1
                 elif current_z < -self.z_threshold: raw_signal = -1
                 
-                if self.ai_model: # Check if Deep Learning model exists
-                    # 4. AI Verification (Deep Learning)
-                    ai_score = 0.5 # Default if not enough data or model not used
-                    if self.ai_model and asset_a in data: # Ensure ai_model is loaded and data is available
-                        # Need sector context (using imported helper or passing it in)
-                        # Ideally config has it, or we rely on default=0 if not easily available here
-                        # Let's import the helper to be robust
-                        from AI.generate_data import get_sector_id # Lazy import
-                        sector_id = get_sector_id(asset_a, asset_b)
-                        
-                        # Extract features using the full window_a_df and window_b_df
-                        features = FeatureEngineer.extract_features(
-                            window_a_df, window_b_df, spread_series, current_z, 
-                            beta, adf_stat, sector_id
-                        )
-                        
-                        if features:
-                            feat_vec = list(features.values())
-                            
-                            # Add to history
-                            self.feature_history[(asset_a, asset_b)].append(feat_vec)
-                            
-                            # Only predict if we have full sequence (30 steps)
-                            if len(self.feature_history[(asset_a, asset_b)]) == 30:
-                                seq = list(self.feature_history[(asset_a, asset_b)])
-                                ai_score = self.ai_model.predict(seq)
-                            else:
-                                ai_score = 0.5 # Warming up, not enough history for prediction
-                    ai_confidence = ai_score # Use the deep learning model's score as confidence
+                # AI Verification Removed
                          
                 # Log State
                 self.latest_state[pair_key] = {
@@ -231,10 +187,6 @@ class PairTradingStrategy(BaseStrategy):
                     'timestamp': current_date
                 }
                 
-                if self.ai_model and raw_signal != 0:
-                     # Filter logic from before
-                     if ai_confidence < 0.7: 
-                         continue 
 
                 # Beta Guardrails (Avoid extreme leverage)
                 if not (0.2 <= beta <= 4.0):

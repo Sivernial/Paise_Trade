@@ -80,7 +80,7 @@ else:
             st.caption(f"Last Update: {ts.strftime('%H:%M:%S')}")
             
             # Key Metrics
-            m1, m2, m3 = st.columns(3)
+            m1, m2 = st.columns(2)
             
             # Color logic
             z_color = "normal"
@@ -88,9 +88,6 @@ else:
             
             m1.metric("Z-Score", f"{z_score:.2f}", delta_color=z_color)
             m2.metric("Beta", f"{beta:.2f}")
-            m3.metric("AI Confidence", f"{ai_conf:.1%}", 
-                     delta=f"{ai_conf*100:.0f}%", 
-                     delta_color="normal" if ai_conf > 0.6 else "off")
             
             # Chart
             fig = go.Figure()
