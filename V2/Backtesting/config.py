@@ -118,7 +118,7 @@ class StrategyConfig:
     PAIR_TRADING = {
         'pairs': [
             ('ACC', 'AMBUJACEM'),      # Cement
-            ('TATAMOTORS', 'M&M'),     # Auto
+            ('MARUTI', 'M&M'),         # Auto
             ('SBIN', 'PNB'),           # PSU Banks
             ('INFY', 'TCS')            # IT
         ],
@@ -128,6 +128,22 @@ class StrategyConfig:
         'take_profit_z': 0.0, # Exit at mean
         'min_confidence': 0.8,
         'time_stop': None  # Disable intraday time stop for multi-day holding
+    }
+
+    INTRADAY_PAIR_TRADING = {
+        'pairs': [
+            ('ACC', 'AMBUJACEM'),      # Cement
+            ('MARUTI', 'M&M'),         # Auto
+             ('SBIN', 'PNB'),           # PSU Banks
+            ('INFY', 'TCS')            # IT
+        ],
+        'z_score_threshold': 1.5, # Tighter entry for intraday
+        'lookback_window': 60, # More granular bars (5min), so 60 bars = 5 hours
+        'stop_loss_z': 3.0,
+        'take_profit_z': 0.0,
+        'min_confidence': 0.7,
+        'time_stop': '15:15', # Force exit
+        'entry_cutoff': '14:30' # No new entries after 2:30 PM
     }
     
     # Hybrid ORB/VWAP Strategy - Full Position Management

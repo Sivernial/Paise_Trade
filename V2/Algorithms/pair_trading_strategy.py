@@ -36,6 +36,10 @@ class PairTradingStrategy(BaseStrategy):
         self.stop_loss = 0.05
         self.take_profit = 0.02
         
+        # Intraday Parameters
+        self.time_stop = self.params.get('time_stop') # "HH:MM" format
+        self.entry_cutoff = self.params.get('entry_cutoff') # "HH:MM" format
+        
         # Risk Manager
         self.risk_manager = RiskManager()
         # Market Intelligence (Public Info)
@@ -113,6 +117,19 @@ class PairTradingStrategy(BaseStrategy):
             if len(df_a) < self.lookback or len(df_b) < self.lookback:
                 continue
             
+            # 0. Time Based Exit (Intraday)
+            if self.time_stop:
+                self.check_time_exit(current_date, asset_a, asset_b, signals, df_a, df_b)
+                # If exit signals generated, stop processing for this pair
+                if any(s.symbol in (asset_a, asset_b) for s in signals):
+                    continue
+            
+            # 0.1 Entry Cutoff Check
+            can_enter = True
+            if self.entry_cutoff:
+                if current_date.strftime("%H:%M") >= self.entry_cutoff:
+                    can_enter = False
+            
             try:
                 # Use longer history for ADF and Hedge Ratio calculation to be stable
                 # Using 2x lookback for calculation window if available, else lookback
@@ -151,8 +168,8 @@ class PairTradingStrategy(BaseStrategy):
 
                 # 3. Calculate Spread and Z-Score
                 # Spread = A - Beta * B
-                # Note: Z-Score still needs history. We construct a synthetic spread history?
-                # For simplicity/robustness: Use current beta on lookback window to check Z-score deviation
+                # Design Decision: We use the current dynamic beta applied to the lookback window.
+                # This correctly measures how the *current* relationship stands relative to recent history.
                 spread_series = window_a - beta * window_b
                 
                 mean_spread = spread_series.mean()
@@ -162,8 +179,8 @@ class PairTradingStrategy(BaseStrategy):
                 
                 current_z = (spread_series.iloc[-1] - mean_spread) / std_spread
                 
-                # OPTIMIZATION: ADF Calculation is slow, maybe skip every other bar?
-                # For now keeping it for correctness.
+                # Check Stationarity (ADF Test)
+                # We prioritize correctness over speed here to avoid false positives on non-stationary spreads.
                 adf_stat = calculate_adf_statistic(spread_series)
                 
                 # 4. Entry Logic
@@ -203,7 +220,11 @@ class PairTradingStrategy(BaseStrategy):
                 
                 # Calculate Quantity using Risk Manager (Dynamic Sizing)
                 # We size Asset A based on volatility, and assume Asset B balances it.
-                # Note: We technically should check portfolio correlation here, but strategy is pair-isolated.
+                # Added portfolio correlation check (basic version - returns True by default currently)
+                if not self.risk_manager.check_correlation(list(self.positions.keys()), (asset_a, asset_b)):
+                    logger.info(f"Skipping trade due to high correlation with existing portfolio")
+                    continue
+
                 qty_a = self.risk_manager.calculate_size(capital, price_a, atr_a)
                 
                 # Ensure minimum viable quantity
@@ -213,55 +234,47 @@ class PairTradingStrategy(BaseStrategy):
                 qty_b = max(1, int(round(qty_a * beta)))
 
                 # Generate Signals
-                if current_z > self.z_threshold and is_cointegrated:
-                    # Market Intelligence: Scale Size based on Sentiment
-                    # If sentiment is very negative for the asset we are buying (Leg B), reduce size.
-                    # Here we check both. If either is "Extreme Fear", we reduce size.
+                if (current_z > self.z_threshold or current_z < -self.z_threshold) and is_cointegrated and can_enter:
                     
+                     # Market Intelligence Directional Scaling
                     sent_a = self.market_intel.get_sentiment(f"{asset_a} share news")
                     sent_b = self.market_intel.get_sentiment(f"{asset_b} share news")
                     
-                    # Default Multiplier
-                    size_multiplier = 1.0
+                    # Determine Directions
+                    # High Z (> Thresh) -> Short A, Long B
+                    # Low Z (< -Thresh) -> Long A, Short B
+                    dir_a = -1 if current_z > 0 else 1
+                    dir_b = 1 if current_z > 0 else -1
                     
-                    # If selling A (Leg 1), negative sentiment on A is actually good? 
-                    # No, usually in Pair Trading we want Mean Reversion, not momentum. 
-                    # Extreme news often breaks correlation. So we reduce risk on ANY extreme news.
+                    mult_a = self._calculate_sentiment_impact(dir_a, sent_a['score'])
+                    mult_b = self._calculate_sentiment_impact(dir_b, sent_b['score'])
                     
-                    if sent_a['score'] < -0.5 or sent_b['score'] < -0.5:
-                        size_multiplier = 0.5 # Half size
-                        logger.info(f"⚠️ Reduced Size (0.5x) due to Negative Sentiment: {asset_a}={sent_a['score']:.2f}, {asset_b}={sent_b['score']:.2f}")
-                    elif sent_a['score'] < -0.2 or sent_b['score'] < -0.2:
-                        size_multiplier = 0.75 # 75% size
-                        
-                    # Apply Multiplier
-                    final_qty_a = max(1, int(qty_a * size_multiplier))
-                    final_qty_b = max(1, int(qty_b * size_multiplier))
-
-                    signals.append(Signal(asset_a, SignalType.SELL, price_a, current_date, 
-                                        quantity=final_qty_a, reason=f"Z={current_z:.2f} Beta={beta:.2f} Sent={size_multiplier}x"))
-                    signals.append(Signal(asset_b, SignalType.BUY, price_b, current_date, 
-                                        quantity=final_qty_b, reason=f"Z={current_z:.2f} Beta={beta:.2f} Sent={size_multiplier}x"))
-                                        
-                elif current_z < -self.z_threshold and is_cointegrated:
-                     # Market Intelligence Scaling
-                    sent_a = self.market_intel.get_sentiment(f"{asset_a} share news")
-                    sent_b = self.market_intel.get_sentiment(f"{asset_b} share news")
+                    # Combined Multiplier (Conservative Average)
+                    # If one leg opposes, we reduce the whole trade.
+                    # If both agree, we boost.
+                    # Logic: Min of both? Or Avg?
+                    # Using Min ensures we don't boost if one leg is risky.
+                    # boosting only if BOTH agree or one matches and other neutral.
                     
-                    size_multiplier = 1.0
-                    if sent_a['score'] < -0.5 or sent_b['score'] < -0.5:
-                        size_multiplier = 0.5
-                        logger.info(f"⚠️ Reduced Size (0.5x) due to Negative Sentiment")
-                    elif sent_a['score'] < -0.2 or sent_b['score'] < -0.2:
-                        size_multiplier = 0.75
+                    size_multiplier = min(mult_a, mult_b)
+                    
+                    # Logging specific reasoning
+                    if size_multiplier != 1.0:
+                        logger.info(f"📰 Sentiment Impact: {asset_a}({sent_a['score']:.2f}) {asset_b}({sent_b['score']:.2f}) -> Mult: {size_multiplier}x")
 
                     final_qty_a = max(1, int(qty_a * size_multiplier))
                     final_qty_b = max(1, int(qty_b * size_multiplier))
-
-                    signals.append(Signal(asset_a, SignalType.BUY, price_a, current_date, 
-                                        quantity=final_qty_a, reason=f"Z={current_z:.2f} Beta={beta:.2f} Sent={size_multiplier}x"))
-                    signals.append(Signal(asset_b, SignalType.SELL, price_b, current_date, 
-                                        quantity=final_qty_b, reason=f"Z={current_z:.2f} Beta={beta:.2f} Sent={size_multiplier}x"))
+                    
+                    if current_z > 0:
+                        signals.append(Signal(asset_a, SignalType.SELL, price_a, current_date, 
+                                            quantity=final_qty_a, reason=f"Z={current_z:.2f} Sent={size_multiplier}x"))
+                        signals.append(Signal(asset_b, SignalType.BUY, price_b, current_date, 
+                                            quantity=final_qty_b, reason=f"Z={current_z:.2f} Sent={size_multiplier}x"))
+                    else:
+                        signals.append(Signal(asset_a, SignalType.BUY, price_a, current_date, 
+                                            quantity=final_qty_a, reason=f"Z={current_z:.2f} Sent={size_multiplier}x"))
+                        signals.append(Signal(asset_b, SignalType.SELL, price_b, current_date, 
+                                            quantity=final_qty_b, reason=f"Z={current_z:.2f} Sent={size_multiplier}x"))
                 
                 # Exit Logic (Mean Reversion)
                 elif abs(current_z) <= 0.5:
@@ -278,3 +291,51 @@ class PairTradingStrategy(BaseStrategy):
                 continue
                 
         return signals
+
+
+    def _calculate_sentiment_impact(self, direction: int, score: float) -> float:
+        """
+        Calculate size multiplier based on sentiment and trade direction.
+        Direction: 1 (Buy/Long), -1 (Sell/Short)
+        Score: -1.0 to 1.0
+        """
+        # Alignment = direction * score
+        # If > 0, they agree (Buy + Good News, Sell + Bad News)
+        # If < 0, they disagree (Buy + Bad News, Sell + Good News)
+        
+        alignment = direction * score
+        
+        # Strong Agreement -> Boost
+        if alignment > 0.3:
+            return 1.25
+            
+        # Agreement -> Slight Boost/Normal
+        if alignment > 0.1:
+            return 1.1
+            
+        # Disagreement -> Reduce
+        if alignment < -0.2:
+            return 0.5
+        
+        # Strong Disagreement -> Block/Slash
+        if alignment < -0.5:
+            return 0.0 # No Trade
+            
+        return 1.0
+
+    def check_time_exit(self, current_time: datetime, asset_a: str, asset_b: str, signals: list, df_a: pd.Series, df_b: pd.Series):
+        """
+        Force exit if current time > time_stop
+        """
+        if not self.time_stop: return
+        
+        curr_str = current_time.strftime("%H:%M")
+        if curr_str >= self.time_stop:
+             # Square off
+             for symbol, pos in [(asset_a, self.positions.get(asset_a)), 
+                               (asset_b, self.positions.get(asset_b))]:
+                 if pos and pos.quantity != 0:
+                     signal_type = SignalType.SELL if pos.quantity > 0 else SignalType.BUY
+                     signals.append(Signal(symbol, signal_type, 
+                                          df_a.iloc[-1]['close'] if symbol == asset_a else df_b.iloc[-1]['close'], 
+                                          current_time, reason=f"Intraday Time Stop ({self.time_stop})"))

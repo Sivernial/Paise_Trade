@@ -11,14 +11,16 @@ class MIConfig:
         'EARNINGS': ['earnings', 'quarterly results', 'profit', 'revenue', 'q1', 'q2', 'q3', 'q4', 'dividend'],
         'SCANDAL': ['fraud', 'scam', 'raid', 'investigation', 'ed', 'cbi', 'sebi', 'default', 'arrest'],
         'MERGER': ['merger', 'acquisition', 'stake', 'buyout', 'takeover'],
-        'MACRO': ['inflation', 'rbi', 'rate hike', 'repo rate', 'gdp', 'budget', 'fiscal']
+        'MACRO': ['inflation', 'rbi', 'rate hike', 'repo rate', 'gdp', 'budget', 'fiscal'],
+        'REGULATORY': ['tax', 'duty', 'gst', 'levy', 'cess', 'ban', 'fine', 'penalty', 'court', 'verdict']
     }
     
     # Sentiment Lexicon (Simple)
     BEARISH = [
         "crash", "plunge", "collapse", "crisis", "bear", "sell-off", "down", 
         "losses", "fear", "recession", "war", "ban", "downgrade", "lower circuit",
-        "weak", "miss", "disappoint", "hit", "fall", "drops", "sink"
+        "weak", "miss", "disappoint", "hit", "fall", "drops", "sink",
+        "tax", "duty", "hike", "fine", "penalty" # Added tax terms as generally negative for price
     ]
     
     BULLISH = [

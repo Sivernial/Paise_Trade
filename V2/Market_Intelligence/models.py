@@ -9,6 +9,7 @@ class EventType(str, Enum):
     MACRO = "MACRO"
     MERGER = "MERGER"
     SCANDAL = "SCANDAL"
+    REGULATORY = "REGULATORY"
     PRICE_ACTION = "PRICE_ACTION"
     GENERAL = "GENERAL"
 

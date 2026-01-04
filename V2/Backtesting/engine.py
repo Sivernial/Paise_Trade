@@ -164,8 +164,11 @@ class BacktestEngine:
                     logger.info(f"Short Position closed: {symbol}, Total PnL: {pos.realized_pnl:.2f}")
                     del self.positions[symbol]
                 
-                # Note: If order.quantity > abs(pos.quantity), we should technically open a long with the remainder.
-                # For simplicity, we just close the short here.
+                # Handle Flip (Short -> Long)
+                if order.quantity > close_qty:
+                    remaining = order.quantity - close_qty
+                    logger.info(f"🔄 Flipping Short -> Long {symbol} (Qty: {remaining})")
+                    self._open_long_position(symbol, remaining, order.price, 0.0, signal) # Comm already charged on full order
             
             # 2. Check if we are adding to a LONG position
             elif symbol in self.positions and self.positions[symbol].quantity > 0:
@@ -177,20 +180,7 @@ class BacktestEngine:
             
             # 3. Open new LONG position
             else:
-                self.positions[symbol] = Position(
-                    symbol=symbol,
-                    quantity=order.quantity,
-                    entry_price=order.price,
-                    entry_date=self.current_date,
-                    current_price=order.price,
-                    highest_price=order.price,
-                    lowest_price=order.price,
-                    stop_loss=signal.stop_loss if signal else None,
-                    target=signal.target if signal else None,
-                    trailing_stop=signal.trailing_stop if signal else None,
-                    breakeven_trigger=signal.breakeven_trigger if signal else None,
-                    partial_exit_trigger=signal.partial_exit_trigger if signal else None
-                )
+                self._open_long_position(symbol, order.quantity, order.price, order.commission, signal)
         
         elif order.transaction_type == TransactionType.SELL:
             # 1. Check if we are closing a LONG position
@@ -234,6 +224,12 @@ class BacktestEngine:
                 if pos.quantity == 0:
                     logger.info(f"Long Position closed: {symbol}, Total PnL: {pos.realized_pnl:.2f}")
                     del self.positions[symbol]
+                
+                # Handle Flip (Long -> Short)
+                if order.quantity > close_qty:
+                    remaining = order.quantity - close_qty
+                    logger.info(f"🔄 Flipping Long -> Short {symbol} (Qty: {remaining})")
+                    self._open_short_position(symbol, remaining, order.price, 0.0, signal)
             
             # 2. Check if we are adding to a SHORT position
             elif symbol in self.positions and self.positions[symbol].quantity < 0:
@@ -259,6 +255,22 @@ class BacktestEngine:
             current_price=price,
             highest_price=price,
             lowest_price=price,
+            stop_loss=signal.stop_loss if signal else None,
+            target=signal.target if signal else None,
+            trailing_stop=signal.trailing_stop if signal else None,
+            breakeven_trigger=signal.breakeven_trigger if signal else None,
+            partial_exit_trigger=signal.partial_exit_trigger if signal else None
+        )
+
+    def _open_long_position(self, symbol: str, quantity: int, price: float, commission: float, signal: Optional[Signal] = None):
+        self.positions[symbol] = Position(
+            symbol=symbol,
+            quantity=quantity,
+            entry_price=price,
+            entry_date=self.current_date,
+            current_price=price,
+            highest_price=price,
+            lowest_price=price, 
             stop_loss=signal.stop_loss if signal else None,
             target=signal.target if signal else None,
             trailing_stop=signal.trailing_stop if signal else None,
