@@ -4,6 +4,7 @@ import pandas as pd
 from datetime import datetime
 import logging
 import time
+from typing import Dict, List, Tuple, Optional
 
 # Add parent directory to path
 sys.path.append(os.path.abspath(os.path.join(os.path.dirname(__file__), '..')))
@@ -11,8 +12,8 @@ sys.path.append(os.path.abspath(os.path.join(os.path.dirname(__file__), '..')))
 from PaperTrader import PaperTrader
 from DataStream_Engine import DataStream
 from DataStream_Engine.aggregator import TickAggregator
-from Algorithms import PairTradingStrategy
-from Database import DatabaseConnection, TradeRepository # Added
+from Algorithms import MultiFactorStrategy
+from Database import DatabaseConnection, TradeRepository 
 from Backtesting.config import BacktestConfig, StrategyConfig
 from Backtesting.data_fetcher import HistoricalDataFetcher
 from login import get_kite_instance
@@ -20,11 +21,13 @@ from login import get_kite_instance
 logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(name)s - %(levelname)s - %(message)s')
 logger = logging.getLogger(__name__)
 
-# Use Pair Config from StrategyConfig
-PAIR = StrategyConfig.PAIR_TRADING['pairs'][0] # Use first pair e.g. ('ACC', 'AMBUJACEM')
-SYMBOLS = list(PAIR)
-INTERVAL_MIN = 15
-LOOKBACK_WINDOW = StrategyConfig.PAIR_TRADING['lookback_window']
+# Portfolio Configuration (Validated Basket)
+BASKETS = {
+    'Banking': ['SBIN', 'PNB', 'BANKBARODA', 'CANBK', 'IDFCFIRSTB']
+}
+SYMBOLS = [s for basket in BASKETS.values() for s in basket]
+INTERVAL_MIN = 5
+LOOKBACK_WINDOW = 300
 
 class PaperRunningSession:
     def __init__(self):
@@ -32,74 +35,36 @@ class PaperRunningSession:
         self.history: Dict[str, pd.DataFrame] = {}
         self.token_map = {} 
         self.reverse_token_map = {}
-        self.db = DatabaseConnection() # Init DB
-        self.trade_repo = TradeRepository(self.db) # Init Repo
+        self.db = DatabaseConnection() 
+        self.trade_repo = TradeRepository(self.db) 
         
-        # --- DYNAMIC PAIR SCANNING ---
-        logger.info("⚡️ Running Dynamic Pair Scanner...")
-        self.pairs = []
-        try:
-            from Common.pair_scanner import scan_pairs
-            scanned_df = scan_pairs(days=60)
-            
-            if scanned_df is not None and not scanned_df.empty:
-                count = 0
-                for _, row in scanned_df.iterrows():
-                    if count >= 4: break
-                    self.pairs.append((row['Asset A'], row['Asset B']))
-                    count += 1
-                logger.info(f"✅ Selected Dynamic Pairs: {self.pairs}")
-        except Exception as e:
-            logger.error(f"Scanner Failed: {e}")
-            
-        if not self.pairs:
-             logger.warning("Falling back to Config Pairs")
-             self.pairs = StrategyConfig.PAIR_TRADING['pairs']
-
-        # Update Global SYMBOLS based on dynamic pairs
-        global SYMBOLS
-        unique_syms = set()
-        for p in self.pairs:
-            unique_syms.add(p[0])
-            unique_syms.add(p[1])
-        SYMBOLS = list(unique_syms)
-        logger.info(f"Active Symbols: {SYMBOLS}")
-
-        # Init components
+        logger.info(f"Initializing V3 Multi-Factor Session for: {SYMBOLS}")
+        
+        # Init components with Tuned Parameters (Extreme Reversion)
         strategy_params = {
-            'pairs': self.pairs,
-            'z_score_threshold': StrategyConfig.PAIR_TRADING['z_score_threshold'],
-            'lookback_window': LOOKBACK_WINDOW,
-            'stop_loss_z': StrategyConfig.PAIR_TRADING.get('stop_loss_z', 4.0),
-            'take_profit_z': StrategyConfig.PAIR_TRADING.get('take_profit_z', 0.0)
+            'baskets': BASKETS,
+            'z_threshold': 2.5,
+            'lookback': LOOKBACK_WINDOW,
+            'n_components': 1
         }
-        self.strategy = PairTradingStrategy(params=strategy_params)
+        self.strategy = MultiFactorStrategy(params=strategy_params)
         
-        # CRITICAL: Re-initialize internal state (pairs list and KF registry)
-        # Because we passed params, __init__ might suffice, but let's be safe if scanned
-        self.strategy.pairs = self.pairs
-        self.strategy.kf_registry = {}
-        from Common.quant_utils import KalmanFilterReg
-        for pair in self.pairs:
-            self.strategy.kf_registry[pair] = KalmanFilterReg(delta=1e-4, R=1e-3)
-            
         self.trader = PaperTrader(self.strategy, initial_capital=BacktestConfig.INITIAL_CAPITAL)
         self.aggregator = TickAggregator(interval_minutes=INTERVAL_MIN)
         
     def setup(self):
         # 1. Fetch initial history (Warmup)
-        logger.info("Fetching warmup data...")
+        logger.info(f"Fetching warmup data ({LOOKBACK_WINDOW} bars)...")
         fetcher = HistoricalDataFetcher(self.kite)
         end_date = datetime.now()
-        start_date = end_date - pd.Timedelta(days=10) # Enough for 60 bars
+        start_date = end_date - pd.Timedelta(days=30) 
         
         for symbol in SYMBOLS:
             df = fetcher.fetch_historical_data(symbol, start_date, end_date, interval=f"{INTERVAL_MIN}min")
             if not df.empty:
-                # Force tz-naive for consistent alignment
                 if df.index.tz is not None:
                     df.index = df.index.tz_localize(None)
-                self.history[symbol] = df.tail(LOOKBACK_WINDOW + 10) # Keep buffer
+                self.history[symbol] = df.tail(LOOKBACK_WINDOW + 20)
                 logger.info(f"Loaded {len(df)} bars for {symbol}")
             else:
                 logger.error(f"Failed to fetch history for {symbol}")
@@ -112,17 +77,16 @@ class PaperRunningSession:
                 self.token_map[inst['instrument_token']] = inst['tradingsymbol']
                 self.reverse_token_map[inst['tradingsymbol']] = inst['instrument_token']
                 
-        logger.info(f"Tokens: {self.token_map}")
+        logger.info(f"Tokens mapped for {len(self.token_map)} symbols")
         
     def run(self):
         self.setup()
         
-        # Setup Stream
-        api_key = os.getenv("API_KEY", "") # Or from file
+        # Use existing access token
         with open("access_token.txt", "r") as f:
             access_token = f.read().strip()
             
-        stream = DataStream(self.kite.api_key, access_token) # Kite instance has api_key
+        stream = DataStream(self.kite.api_key, access_token) 
         
         # Subscribe
         tokens = list(self.token_map.keys())
@@ -132,47 +96,37 @@ class PaperRunningSession:
         stream.add_callback(self.on_tick)
         self.aggregator.add_callback(self.on_candle_closed)
         
-        logger.info(f"Starting Paper Trading for {PAIR}")
+        logger.info(f"Starting Paper Trading V3 for Banking Basket")
         stream.start()
         
         try:
             while True:
-                time.sleep(10)
+                time.sleep(30)
                 status = self.trader.get_status()
-                logger.info(f"Portfolio: Rs {status['total_value']:.2f} | Open Pos: {status['portfolio']['positions']}")
+                logger.info(f"PnL: {status['total_value'] - BacktestConfig.INITIAL_CAPITAL:.2f} | Open Pos: {len(status['portfolio']['positions'])}")
         except KeyboardInterrupt:
             logger.info("Stopping...")
             stream.stop()
 
     def on_tick(self, tick):
-        # Pass to aggregator
-        # Tick might be single dict or list
         if isinstance(tick, list):
             self.aggregator.on_tick(tick)
+            for t in tick:
+                token = t.get('instrument_token')
+                price = t.get('last_price')
+                symbol = self.token_map.get(token)
+                if symbol:
+                    self.trader.current_prices[symbol] = price
         else:
             self.aggregator.on_tick([tick])
-            
-        # Also update current price in trader for MTM
-        if isinstance(tick, list):
-             for t in tick:
-                 token = t.get('instrument_token')
-                 price = t.get('last_price')
-                 symbol = self.token_map.get(token)
-                 if symbol:
-                     self.trader.current_prices[symbol] = price
+            token = tick.get('instrument_token')
+            if token in self.token_map:
+                self.trader.current_prices[self.token_map[token]] = tick.get('last_price')
 
     def on_candle_closed(self, token_or_symbol, candle):
-        # Aggregator might pass token if it doesn't know symbol. 
-        # Our Aggregator implementation blindly passes what it gets.
-        # But wait, Aggregator logic used 'instrument_token' from tick.
-        # So 'token_or_symbol' is likely token.
-        
         symbol = self.token_map.get(token_or_symbol)
-        if not symbol:
-            logger.warning(f"Unknown token {token_or_symbol}")
-            return
+        if not symbol: return
             
-        # Force tz-naive for incoming candles
         if candle.index.tz is not None:
             candle.index = candle.index.tz_localize(None)
             
@@ -186,47 +140,22 @@ class PaperRunningSession:
         
         # Trim
         if len(self.history[symbol]) > LOOKBACK_WINDOW * 2:
-             self.history[symbol] = self.history[symbol].iloc[-LOOKBACK_WINDOW:]
+             self.history[symbol] = self.history[symbol].iloc[-LOOKBACK_WINDOW-20:]
              
-        # Check if we have fresh data for BOTH pairs to run strategy
-        # Ideally, we wait for both bars to close. 
-        # For now, run strategy on every bar close, it will use latest available data for both.
-        
         self.run_strategy()
 
     def run_strategy(self):
-        # Extract series
         try:
-            data_map = {s: self.history[s] for s in SYMBOLS if s in self.history}
+            # Ensure we have data for all symbols
+            if len(self.history) < len(SYMBOLS): return
             
-            # Run strategy
-            # Note: generate_signals might expect data aligned by index. 
-            # In live, indices (timestamps) should mostly match.
+            data_map = {s: self.history[s] for s in SYMBOLS}
             current_equity = self.trader.get_status()['total_value']
+            
             signals = self.strategy.generate_signals(data_map, datetime.now(), capital=current_equity)
             
-            # Log Strategy State for Dashboard
-            if hasattr(self.strategy, 'latest_state'):
-                for pair_key, state in self.strategy.latest_state.items():
-                    pair_str = f"{pair_key[0]}-{pair_key[1]}"
-                    logger.info(
-                        f"Strategy State for {pair_str}: "
-                        f"Z-Score={state['z_score']:.2f}, "
-                        f"Beta={state['beta']:.2f}, "
-                        f"Spread={state['spread']:.2f}, "
-                        f"Signal={'SIGNAL' if signals else 'NONE'}"
-                    )
-                    self.trade_repo.log_strategy_state(
-                        pair_str,
-                        state['z_score'],
-                        state['beta'],
-                        state['spread'],
-                        0.0, # Removed AI
-                        'SIGNAL' if signals else 'NONE'
-                    )
-            
             if signals:
-                logger.info(f"Signals generated: {signals}")
+                logger.info(f"Generated {len(signals)} signals: {signals}")
                 self.trader.process_signals(signals)
                 
         except Exception as e:
@@ -235,4 +164,3 @@ class PaperRunningSession:
 if __name__ == "__main__":
     session = PaperRunningSession()
     session.run()
-

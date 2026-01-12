@@ -179,3 +179,60 @@ def count_zero_crossings(spread: pd.Series) -> int:
         return len(crossings)
     except:
         return 0
+
+def calculate_pca_residuals(data: pd.DataFrame, n_components: int = 1) -> pd.DataFrame:
+    """
+    Extract residuals of a basket of stocks after removing common factors using PCA.
+    data: DataFrame where columns are asset returns (log returns preferred).
+    n_components: Number of principal components to treat as common factors (usually 1 for 'Market' or 'Sector' factor).
+    Returns: DataFrame of residuals.
+    """
+    from sklearn.decomposition import PCA
+    
+    # Work with log returns to ensure stationarity
+    # If data is prices, we should convert locally or assume it's returns
+    # Assuming data is log returns for this utility
+    
+    # 1. Standardize (De-mean and unit variance)
+    mu = data.mean()
+    sigma = data.std()
+    standardized_data = (data - mu) / sigma
+    
+    # 2. PCA
+    pca = PCA(n_components=n_components)
+    factors = pca.fit_transform(standardized_data) # [Time, N_Components]
+    
+    # 3. Reconstruct the "Common" part
+    # standardized = Factors * Components + Residuals
+    common_part = factors @ pca.components_
+    
+    # 4. Residuals = Standardized - Common
+    residuals = standardized_data - common_part
+    
+    return residuals
+
+class MarketRegimeDetector:
+    """
+    Detects market regimes (e.g. Low Vol, High Vol, Trending) using GMM clustering.
+    """
+    def __init__(self, n_regimes: int = 2):
+        from sklearn.mixture import GaussianMixture
+        self.model = GaussianMixture(n_components=n_regimes, random_state=42)
+        self.is_fitted = False
+        
+    def fit_predict(self, data: pd.Series) -> np.ndarray:
+        """
+        Fit the model on historical returns/volatility and return regime labels.
+        """
+        X = data.values.reshape(-1, 1)
+        self.model.fit(X)
+        self.is_fitted = True
+        return self.model.predict(X)
+    
+    def predict(self, val: float) -> int:
+        """
+        Predict regime for a single new value.
+        """
+        if not self.is_fitted:
+            return 0
+        return int(self.model.predict(np.array([[val]]))[0])

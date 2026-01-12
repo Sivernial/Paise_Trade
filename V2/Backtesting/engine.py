@@ -545,7 +545,7 @@ class BacktestEngine:
             
             strategy_data = {}
             for symbol, df in data.items():
-                strategy_data[symbol] = df[df.index <= date].tail(100)
+                strategy_data[symbol] = df[df.index <= date].tail(500)
             
             try:
                 strategy_func(strategy_data, self, date)

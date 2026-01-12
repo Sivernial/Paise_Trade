@@ -12,7 +12,7 @@ from Common import TransactionType
 from Common.quant_utils import KalmanFilterReg
 from login import get_kite_instance
 
-logging.basicConfig(level=logging.INFO)
+logging.basicConfig(level=logging.DEBUG)
 logger = logging.getLogger(__name__)
 
 # --- INTRADAY CONFIGURATION ---
@@ -75,9 +75,10 @@ def run_backtest():
     
     # 3. Setup Strategy
     strategy = PairTradingStrategy(params=INTRA_CONFIG)
+    strategy.market_intel.enabled = False
     strategy.kf_registry = {}
     for pair in PAIRS:
-        strategy.kf_registry[pair] = KalmanFilterReg(delta=1e-4, R=1e-3)
+        strategy.kf_registry[pair] = KalmanFilterReg(delta=1e-6, R=1e-4)
 
     # 4. Setup Engine
     trade_repo = TradeRepository(db_conn)

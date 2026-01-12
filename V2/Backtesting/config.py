@@ -143,7 +143,7 @@ class StrategyConfig:
         'take_profit_z': 0.0,
         'min_confidence': 0.7,
         'time_stop': '15:15', # Force exit
-        'entry_cutoff': '14:30' # No new entries after 2:30 PM
+        'entry_cutoff': '15:00' # No new entries after 3:00 PM
     }
     
     # Hybrid ORB/VWAP Strategy - Full Position Management

@@ -41,8 +41,39 @@ class RiskManager:
             
         return quantity
 
-    def check_correlation(self, current_positions: list, new_pair: tuple) -> bool:
+    def check_correlation(self, current_positions: list, new_pair: tuple, market_data: dict, lookback: int = 40) -> bool:
         """
-        Future implementation: Check if new_pair is highly correlated with existing positions.
+        Check if the new_pair components are highly correlated with any existing position.
+        Returns False if correlation > 0.7 (Too much exposure to same moves).
         """
+        if not current_positions:
+            return True
+            
+        new_assets = [new_pair[0], new_pair[1]]
+        
+        for new_asset in new_assets:
+            if new_asset not in market_data: continue
+            
+            new_series = market_data[new_asset]['close'].pct_change().tail(lookback).fillna(0)
+            
+            for existing_pos in current_positions:
+                if existing_pos not in market_data: continue
+                
+                # Don't compare with itself (though strictly shouldn't happen if checking new entries)
+                if existing_pos == new_asset: 
+                    # Actually if we already hold it, we might be adding size, which is fine for the strategy logic
+                    continue
+                    
+                pos_series = market_data[existing_pos]['close'].pct_change().tail(lookback).fillna(0)
+                
+                # Check Length match
+                min_len = min(len(new_series), len(pos_series))
+                if min_len < 10: continue
+                
+                corr = new_series.iloc[-min_len:].corr(pos_series.iloc[-min_len:])
+                
+                if abs(corr) > 0.75:
+                    logger.info(f"🚫 High Correlation detected: {new_asset} vs {existing_pos} (Corr: {corr:.2f})")
+                    return False
+                    
         return True

@@ -4,6 +4,7 @@ import logging
 from datetime import datetime, timedelta
 import urllib.parse
 import re
+from functools import lru_cache
 
 logger = logging.getLogger(__name__)
 
@@ -28,14 +29,24 @@ class MarketIntelligence:
         "beat", "jump", "soar", "climb", "recover", "buy", "deal"
     ]
     
-    def __init__(self):
-        pass
+    def __init__(self, enabled: bool = True):
+        self._sentiment_cache = {} # Manual cache for broader control
+        self.enabled = enabled
         
     def get_sentiment(self, query: str) -> dict:
         """
         Returns {'score': float, 'summary': str}
         Score: -1.0 (Bearish) to 1.0 (Bullish). 0 is Neutral.
+        Implements temporal caching to avoid excessive network calls.
         """
+        if not self.enabled:
+            return {'score': 0.0, 'regime': 'NEUTRAL', 'summary': 'Sentiment Disabled'}
+            
+        # Temporal cache key: Hourly (e.g. "SYMBOL-20260107-14")
+        cache_key = f"{query}-{datetime.now().strftime('%Y%m%d-%H')}"
+        if cache_key in self._sentiment_cache:
+            return self._sentiment_cache[cache_key]
+            
         try:
             encoded_query = urllib.parse.quote(query)
             url = self.RSS_URL.format(query=encoded_query)
@@ -84,11 +95,13 @@ class MarketIntelligence:
             if final_score > 0.3: regime = "BULLISH"
             if final_score < -0.3: regime = "BEARISH"
             
-            return {
+            res = {
                 'score': final_score,
                 'regime': regime,
                 'article_count': article_count
             }
+            self._sentiment_cache[cache_key] = res
+            return res
             
         except Exception as e:
             logger.error(f"Sentiment Analysis Failed: {e}")

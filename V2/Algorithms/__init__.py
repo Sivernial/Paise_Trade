@@ -6,6 +6,7 @@ from .orb_vwap_strategy import ORBVWAPStrategy
 from .vwap_reversion_strategy import VWAPReversionStrategy
 from .hybrid_orb_strategy import HybridORBStrategy
 from .pair_trading_strategy import PairTradingStrategy
+from .multi_factor_strategy import MultiFactorStrategy
 
 __all__ = [
     'BaseStrategy', 
@@ -15,6 +16,7 @@ __all__ = [
     'ORBVWAPStrategy',
     'VWAPReversionStrategy',
     'HybridORBStrategy',
-    'PairTradingStrategy'
+    'PairTradingStrategy',
+    'MultiFactorStrategy'
 ]
 
