@@ -23,13 +23,16 @@ from login import get_kite_instance
 logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(name)s - %(levelname)s - %(message)s')
 logger = logging.getLogger(__name__)
 
-# Portfolio Configuration (Validated Basket)
+# Portfolio Configuration (Multi-Sector Recovery)
 BASKETS = {
-    'Banking': ['SBIN', 'PNB', 'BANKBARODA', 'CANBK', 'IDFCFIRSTB']
+    'Banking': ['SBIN', 'PNB', 'BANKBARODA', 'CANBK', 'IDFCFIRSTB'],
+    'IT': ['INFY', 'TCS', 'HCLTECH', 'TECHM', 'WIPRO'],
+    'Auto': ['MARUTI', 'M&M', 'TMPV', 'BAJAJ-AUTO', 'EICHERMOT'],
+    'Pharma': ['SUNPHARMA', 'CIPLA', 'DRREDDY', 'DIVISLAB']
 }
 SYMBOLS = [s for basket in BASKETS.values() for s in basket]
 INTERVAL_MIN = 5
-LOOKBACK_WINDOW = 300
+LOOKBACK_WINDOW = 180 # Faster adaptation
 
 class LiveRunningSession:
     def __init__(self):
@@ -52,10 +55,17 @@ class LiveRunningSession:
         self.db = DatabaseConnection()
         self.trade_repo = TradeRepository(self.db)
         
-        # Init Strategy with Extreme Tuning (Z=2.5)
+        # Init Strategy with Tiered Tuning
         strategy_params = {
             'baskets': BASKETS,
-            'z_threshold': 2.5,
+            'z_threshold': 2.0, # Lowered from 2.5
+            'exit_z_threshold': 1.0, # Greedier Profit Booking
+            'tiered_thresholds': {
+                'Banking': 2.0,
+                'IT': 2.5,
+                'Auto': 2.5,
+                'Pharma': 2.5
+            },
             'lookback': LOOKBACK_WINDOW,
             'n_components': 1
         }
@@ -66,10 +76,10 @@ class LiveRunningSession:
         
     def setup(self):
         # 1. Fetch Warmup
-        logger.info(f"Fetching warmup data ({LOOKBACK_WINDOW} bars)...")
+        logger.info(f"Fetching warmup data for {len(SYMBOLS)} symbols...")
         fetcher = HistoricalDataFetcher(self.kite)
         end_date = datetime.now()
-        start_date = end_date - pd.Timedelta(days=30) 
+        start_date = end_date - pd.Timedelta(days=40) 
         
         for symbol in SYMBOLS:
             df = fetcher.fetch_historical_data(symbol, start_date, end_date, interval=f"{INTERVAL_MIN}min")
@@ -139,6 +149,8 @@ class LiveRunningSession:
             self.history[symbol] = candle
         else:
              self.history[symbol] = pd.concat([self.history[symbol], candle])
+             # De-duplicate
+             self.history[symbol] = self.history[symbol][~self.history[symbol].index.duplicated(keep='last')]
         
         if len(self.history[symbol]) > LOOKBACK_WINDOW * 2:
              self.history[symbol] = self.history[symbol].iloc[-LOOKBACK_WINDOW-20:]
@@ -155,7 +167,15 @@ class LiveRunningSession:
             margins = self.kite.margins()
             current_equity = margins.get('equity', {}).get('available', {}).get('live_balance', 100000)
             
-            signals = self.strategy.generate_signals(data_map, datetime.now(), capital=current_equity)
+            # Identify existing positions
+            existing_pos = list(self.trader.portfolio.get_positions().keys())
+            
+            signals = self.strategy.generate_signals(
+                data_map, 
+                datetime.now(), 
+                capital=current_equity,
+                existing_positions=existing_pos
+            )
             
             if signals:
                 logger.info(f"LIVE SIGNALS: {signals}")

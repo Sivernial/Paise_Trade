@@ -13,62 +13,94 @@ class PaperPortfolio:
         self.positions: Dict[str, Position] = {}
         self.orders: list = []
     
+    def get_positions(self) -> Dict[str, Position]:
+        """Return the current active positions."""
+        return self.positions
+    
     def execute_order(self, order: Order, current_price: float, signal: Optional[Signal] = None):
+        """Execute a buy or sell order, supporting short selling."""
         
-        if order.transaction_type == TransactionType.BUY:
-            cost = order.quantity * current_price
-            if cost > self.cash:
-                logger.warning(f"Insufficient funds: need {cost}, have {self.cash}")
-                return False
-            
-            self.cash -= cost
-            
-            if order.symbol in self.positions:
-                pos = self.positions[order.symbol]
-                total_cost = pos.quantity * pos.entry_price + order.quantity * current_price
-                total_qty = pos.quantity + order.quantity
-                pos.entry_price = total_cost / total_qty
-                pos.quantity = total_qty
-            else:
-                # Create new position with position management from signal
-                self.positions[order.symbol] = Position(
-                    symbol=order.symbol,
-                    quantity=order.quantity,
-                    entry_price=current_price,
-                    entry_date=datetime.now(),
-                    current_price=current_price,
-                    highest_price=current_price,
-                    lowest_price=current_price,
-                    stop_loss=signal.stop_loss if signal else None,
-                    target=signal.target if signal else None,
-                    trailing_stop=signal.trailing_stop if signal else None,
-                    breakeven_trigger=signal.breakeven_trigger if signal else None,
-                    partial_exit_trigger=signal.partial_exit_trigger if signal else None
-                )
+        # Determine quantity delta
+        is_buy = order.transaction_type == TransactionType.BUY
+        qty_delta = order.quantity if is_buy else -order.quantity
+        transaction_amount = order.quantity * current_price
         
-        elif order.transaction_type == TransactionType.SELL:
-            if order.symbol not in self.positions:
-                logger.warning(f"No position to sell: {order.symbol}")
-                return False
-            
+        # Cash management: Buying costs cash, Selling provides cash
+        if is_buy:
+            if transaction_amount > self.cash:
+                 logger.warning(f"Insufficient funds for BUY: need {transaction_amount}, have {self.cash}")
+                 return False
+            self.cash -= transaction_amount
+        else:
+            # Short selling: Receiving cash upfront (simulated)
+            self.cash += transaction_amount
+
+        if order.symbol in self.positions:
             pos = self.positions[order.symbol]
-            if pos.quantity < order.quantity:
-                logger.warning(f"Insufficient quantity: need {order.quantity}, have {pos.quantity}")
-                return False
             
-            proceeds = order.quantity * current_price
-            self.cash += proceeds
+            # If closing or reducing a position, calculate realized PnL
+            # For longs (qty > 0): PnL = (Exit - Entry) * QtySold
+            # For shorts (qty < 0): PnL = (Entry - Exit) * QtyBoughtBack
+            # Simplified: PnL = (current_price - entry_price) * QtyDelta_IfClosing
+            # But the direction matters. 
             
-            # Calculate realized PnL
-            pnl = (current_price - pos.entry_price) * order.quantity
-            pos.realized_pnl += pnl
+            if (is_buy and pos.quantity < 0) or (not is_buy and pos.quantity > 0):
+                # We are closing or reversing
+                qty_closed = min(abs(pos.quantity), order.quantity)
+                if pos.quantity > 0: # Closing a long
+                    pnl = (current_price - pos.entry_price) * qty_closed
+                else: # Closing a short (covering)
+                    pnl = (pos.entry_price - current_price) * qty_closed
+                pos.realized_pnl += pnl
+                logger.info(f"PnL Realized for {order.symbol}: {pnl:.2f}")
+
+            # Update Entry Price (Weighted Average for increasing, or keeping same for reducing)
+            # If we are increasing in the same direction:
+            if (is_buy and pos.quantity >= 0) or (not is_buy and pos.quantity <= 0):
+                 total_cost = abs(pos.quantity) * pos.entry_price + order.quantity * current_price
+                 total_qty = abs(pos.quantity) + order.quantity
+                 pos.entry_price = total_cost / total_qty if total_qty != 0 else current_price
             
-            pos.quantity -= order.quantity
+            pos.quantity += qty_delta
+            
             if pos.quantity == 0:
-                logger.info(f"Position closed: {order.symbol}, Realized PnL: {pos.realized_pnl:.2f}")
+                logger.info(f"Position closed for {order.symbol}. Total Realized PnL: {pos.realized_pnl:.2f}")
                 del self.positions[order.symbol]
+        else:
+            # Create new position (long or short)
+            self.positions[order.symbol] = Position(
+                symbol=order.symbol,
+                quantity=qty_delta,
+                entry_price=current_price,
+                entry_date=datetime.now(),
+                current_price=current_price,
+                highest_price=current_price,
+                lowest_price=current_price,
+                stop_loss=signal.stop_loss if signal else None,
+                target=signal.target if signal else None,
+                trailing_stop=signal.trailing_stop if signal else None,
+                breakeven_trigger=signal.breakeven_trigger if signal else None,
+                partial_exit_trigger=signal.partial_exit_trigger if signal else None
+            )
         
         self.orders.append(order)
+        
+        # Return trade info if a position was closed/reduced for recording
+        if (is_buy and pos.quantity + qty_delta <= pos.quantity) or (not is_buy and pos.quantity + qty_delta >= pos.quantity):
+            # This is complex, let's just return a dict if pnl was realized
+            if 'pnl' in locals() and pnl != 0:
+                return {
+                    'symbol': order.symbol,
+                    'entry_time': pos.entry_date,
+                    'exit_time': datetime.now(),
+                    'entry_price': pos.entry_price,
+                    'exit_price': current_price,
+                    'quantity': qty_closed,
+                    'side': 'SELL' if not is_buy else 'BUY',
+                    'pnl': pnl,
+                    'mode': 'paper'
+                }
+        
         return True
     
     def update_position_prices(self, symbol: str, current_price: float):

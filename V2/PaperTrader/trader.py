@@ -10,9 +10,10 @@ logger = logging.getLogger(__name__)
 
 class PaperTrader:
     
-    def __init__(self, strategy: BaseStrategy, initial_capital: float = 100000):
+    def __init__(self, strategy: BaseStrategy, initial_capital: float = 100000, trade_repo = None):
         self.strategy = strategy
         self.portfolio = PaperPortfolio(initial_capital)
+        self.trade_repo = trade_repo
         self.current_prices: Dict[str, float] = {}
         
         # Buffer for completed candles to pass to strategy
@@ -53,6 +54,36 @@ class PaperTrader:
                 self._execute_buy(signal)
             elif signal.signal_type == SignalType.SELL:
                 self._execute_sell(signal)
+            elif signal.signal_type == SignalType.EXIT:
+                self._execute_exit(signal)
+    
+    def _execute_exit(self, signal: Signal):
+        """Flatten any existing position for the symbol."""
+        positions = self.portfolio.get_positions()
+        if signal.symbol not in positions:
+            # logger.debug(f"No position to exit for {signal.symbol}")
+            return
+            
+        pos = positions[signal.symbol]
+        trans_type = TransactionType.SELL if pos.quantity > 0 else TransactionType.BUY
+        
+        logger.info(f"Generated EXIT order for {signal.symbol}: Closing {pos.quantity}")
+        
+        order = Order(
+            symbol=signal.symbol,
+            quantity=abs(pos.quantity),
+            price=signal.price,
+            order_type=OrderType.MARKET,
+            transaction_type=trans_type,
+            timestamp=datetime.now(),
+            status=OrderStatus.COMPLETE
+        )
+        
+        res = self.portfolio.execute_order(order, signal.price, signal=signal)
+        if res:
+            logger.info(f"Successfully EXITED position for {signal.symbol}")
+            if isinstance(res, dict) and self.trade_repo:
+                self.trade_repo.save_trade(res)
     
     def _execute_buy(self, signal: Signal):
         # Calculate quantity
@@ -75,8 +106,11 @@ class PaperTrader:
             status=OrderStatus.COMPLETE
         )
         
-        if self.portfolio.execute_order(order, price, signal=signal):
+        res = self.portfolio.execute_order(order, price, signal=signal)
+        if res:
             logger.info(f"Executed BUY {quantity} {signal.symbol}")
+            if isinstance(res, dict) and self.trade_repo:
+                self.trade_repo.save_trade(res)
 
     def _execute_sell(self, signal: Signal):
         price = signal.price
@@ -97,8 +131,11 @@ class PaperTrader:
             status=OrderStatus.COMPLETE
         )
         
-        if self.portfolio.execute_order(order, price, signal=signal):
+        res = self.portfolio.execute_order(order, price, signal=signal)
+        if res:
             logger.info(f"Executed SELL {quantity} {signal.symbol}")
+            if isinstance(res, dict) and self.trade_repo:
+                self.trade_repo.save_trade(res)
 
     def _calculate_default_quantity(self, price: float) -> int:
         # Default 10% allocation

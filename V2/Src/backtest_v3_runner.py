@@ -14,9 +14,9 @@ logger = logging.getLogger(__name__)
 # Portfolio Configuration
 BASKETS = {
     'Banking': ['SBIN', 'PNB', 'BANKBARODA', 'CANBK', 'IDFCFIRSTB'],
-    # 'IT': ['INFY', 'TCS', 'HCLTECH', 'TECHM', 'WIPRO'],
-    # 'Auto': ['MARUTI', 'M&M', 'TMPV', 'BAJAJ-AUTO', 'EICHERMOT'],
-    # 'Pharma': ['SUNPHARMA', 'CIPLA', 'DRREDDY', 'DIVISLAB']
+    'IT': ['INFY', 'TCS', 'HCLTECH', 'TECHM', 'WIPRO'],
+    'Auto': ['MARUTI', 'M&M', 'TMPV', 'BAJAJ-AUTO', 'EICHERMOT'],
+    'Pharma': ['SUNPHARMA', 'CIPLA', 'DRREDDY', 'DIVISLAB']
 }
 
 def run_v3_backtest():
@@ -30,13 +30,22 @@ def run_v3_backtest():
     all_symbols = [s for basket in BASKETS.values() for s in basket]
     logger.info(f"Fetching data for {all_symbols}")
     raw_data, data = fetcher.fetch_and_resample(all_symbols, start_date, end_date, "5min", "5min")
+    LOOKBACK_WINDOW = 180
     
-    if not data:
-        logger.error("Data fetch failed.")
-        return
-
-    # 2. Setup Strategy
-    strategy = MultiFactorStrategy(params={'baskets': BASKETS, 'z_threshold': 2.5})
+    # 2. Setup Strategy with Tiered Thresholds
+    strategy_params = {
+        'baskets': BASKETS,
+        'z_threshold': 2.0, 
+        'exit_z_threshold': 1.0,
+        'lookback': LOOKBACK_WINDOW,
+        'tiered_thresholds': {
+            'Banking': 2.0,
+            'IT': 2.5,
+            'Auto': 2.5,
+            'Pharma': 2.5
+        }
+    }
+    strategy = MultiFactorStrategy(params=strategy_params)
     
     # 3. Setup Engine
     engine = BacktestEngine(
@@ -46,12 +55,29 @@ def run_v3_backtest():
     )
     
     def strategy_callback(data_dict, backtest_engine, current_date):
-        signals = strategy.generate_signals(data_dict, current_date, capital=backtest_engine.get_portfolio_value())
+        # Pass existing positions to avoid duplicates and enable exits
+        existing_pos = list(backtest_engine.positions.keys())
         
+        signals = strategy.generate_signals(
+            data_dict, 
+            current_date, 
+            capital=backtest_engine.get_portfolio_value(),
+            existing_positions=existing_pos
+        )
+        
+        from Common import TransactionType, SignalType
         for signal in signals:
-            from Common import TransactionType
-            trans_type = TransactionType.BUY if signal.signal_type.value == "BUY" else TransactionType.SELL
-            backtest_engine.place_order(signal.symbol, trans_type, signal.quantity, signal.price, signal)
+            if signal.signal_type == SignalType.BUY:
+                backtest_engine.place_order(signal.symbol, TransactionType.BUY, signal.quantity, signal.price, signal)
+            elif signal.signal_type == SignalType.SELL:
+                backtest_engine.place_order(signal.symbol, TransactionType.SELL, signal.quantity, signal.price, signal)
+            elif signal.signal_type == SignalType.EXIT:
+                # Close existing position
+                if signal.symbol in backtest_engine.positions:
+                    pos = backtest_engine.positions[signal.symbol]
+                    trans_type = TransactionType.SELL if pos.quantity > 0 else TransactionType.BUY
+                    backtest_engine.place_order(signal.symbol, trans_type, abs(pos.quantity), signal.price, signal)
+            
             logger.info(f"[{current_date}] {signal.signal_type.value} {signal.symbol} @ {signal.price} | {signal.reason}")
 
     # 4. Run loop

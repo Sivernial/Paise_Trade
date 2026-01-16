@@ -236,3 +236,52 @@ class MarketRegimeDetector:
         if not self.is_fitted:
             return 0
         return int(self.model.predict(np.array([[val]]))[0])
+
+def calculate_atr(df: pd.DataFrame, period: int = 14) -> pd.Series:
+    """
+    Calculate Average True Range (ATR).
+    df: DataFrame with 'high', 'low', 'close' columns.
+    """
+    high = df['high']
+    low = df['low']
+    close = df['close']
+    
+    tr1 = high - low
+    tr2 = abs(high - close.shift(1))
+    tr3 = abs(low - close.shift(1))
+    
+    tr = pd.concat([tr1, tr2, tr3], axis=1).max(axis=1)
+    atr = tr.rolling(window=period).mean()
+    return atr
+
+def calculate_adx(df: pd.DataFrame, period: int = 14) -> pd.Series:
+    """
+    Calculate Average Directional Index (ADX).
+    df: DataFrame with 'high', 'low', 'close' columns.
+    ADX > 25 usually indicates a strong trend.
+    """
+    high = df['high']
+    low = df['low']
+    close = df['close']
+    
+    plus_dm = high.diff()
+    minus_dm = low.diff()
+    
+    plus_dm[plus_dm < 0] = 0
+    minus_dm[minus_dm > 0] = 0
+    minus_dm = abs(minus_dm)
+    
+    # Simple TR calculation
+    tr1 = high - low
+    tr2 = abs(high - close.shift(1))
+    tr3 = abs(low - close.shift(1))
+    tr = pd.concat([tr1, tr2, tr3], axis=1).max(axis=1)
+    
+    # Smoothed components
+    atr = tr.rolling(window=period).mean()
+    plus_di = 100 * (plus_dm.rolling(window=period).mean() / atr)
+    minus_di = 100 * (minus_dm.rolling(window=period).mean() / atr)
+    
+    dx = 100 * abs(plus_di - minus_di) / (plus_di + minus_di)
+    adx = dx.rolling(window=period).mean()
+    return adx

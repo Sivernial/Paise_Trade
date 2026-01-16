@@ -1,0 +1,24 @@
+{
+    "last_updated": "2026-01-16 21:37:18",
+    "symbol_thresholds": {
+        "SBIN": 2.5,
+        "PNB": 2.5,
+        "BANKBARODA": 2.5,
+        "CANBK": 2.5,
+        "IDFCFIRSTB": 2.5,
+        "INFY": 2.5,
+        "TCS": 2.5,
+        "HCLTECH": 2.5,
+        "TECHM": 2.5,
+        "WIPRO": 2.5,
+        "MARUTI": 2.5,
+        "M&M": 2.5,
+        "TMPV": 2.5,
+        "BAJAJ-AUTO": 2.5,
+        "EICHERMOT": 2.5,
+        "SUNPHARMA": 2.5,
+        "CIPLA": 2.5,
+        "DRREDDY": 2.5,
+        "DIVISLAB": 2.5
+    }
+}

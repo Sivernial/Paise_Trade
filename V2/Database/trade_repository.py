@@ -106,3 +106,25 @@ class TradeRepository:
                 conn.commit()
         except Exception as e:
             print(f"Error logging strategy state: {e}")
+
+    def log_performance_metrics(self, metrics: List[dict]):
+        """
+        Bulk log per-symbol metrics for tuning analysis.
+        metrics: list of dicts with {symbol, basket, z_score, price, residual, residual_std, threshold, in_pos}
+        """
+        try:
+            with self.db.get_connection() as conn:
+                cursor = conn.cursor()
+                cursor.executemany('''
+                    INSERT INTO strategy_metrics 
+                    (symbol, basket_name, z_score, price, residual, residual_std, threshold_used, in_position, hurst, half_life, adx, regime)
+                    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                ''', [
+                    (m['symbol'], m['basket'], m['z_score'], m['price'], 
+                     m['residual'], m['residual_std'], m['threshold'], 1 if m['in_pos'] else 0,
+                     m.get('hurst'), m.get('half_life'), m.get('adx'), m.get('regime'))
+                    for m in metrics
+                ])
+                conn.commit()
+        except Exception as e:
+            logger.error(f"Error logging performance metrics: {e}")

@@ -26,6 +26,8 @@ class SignalType(Enum):
     BUY = "BUY"
     SELL = "SELL"
     HOLD = "HOLD"
+    EXIT = "EXIT"
+    FLATTEN = "FLATTEN"
 
 class Exchange(Enum):
     NSE = "NSE"

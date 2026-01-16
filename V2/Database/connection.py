@@ -76,8 +76,25 @@ class DatabaseConnection:
                     beta REAL,
                     spread REAL,
                     ai_confidence REAL,
-                    signal_type TEXT, -- 'BUY', 'SELL', 'NONE'
+                    signal_type TEXT, -- 'BUY', 'SELL', 'EXIT', 'NONE'
                     metadata TEXT -- JSON for extra fields
+                );
+
+                CREATE TABLE IF NOT EXISTS strategy_metrics (
+                    id INTEGER PRIMARY KEY AUTOINCREMENT,
+                    timestamp DATETIME DEFAULT CURRENT_TIMESTAMP,
+                    symbol TEXT,
+                    basket_name TEXT,
+                    z_score REAL,
+                    price REAL,
+                    residual REAL,
+                    residual_std REAL,
+                    threshold_used REAL,
+                    in_position INTEGER, -- 0 or 1
+                    hurst REAL,
+                    half_life REAL,
+                    adx REAL,
+                    regime TEXT
                 );
                 
                 CREATE INDEX IF NOT EXISTS idx_candles_symbol 
@@ -92,3 +109,14 @@ class DatabaseConnection:
                 CREATE INDEX IF NOT EXISTS idx_logs_ts 
                 ON strategy_logs(timestamp);
             ''')
+            
+    def prune_old_data(self, days: int = 120):
+        """Delete logs and metrics older than X days (default 4 months)."""
+        logger.info(f"Pruning database records older than {days} days...")
+        with self.get_connection() as conn:
+            # Delete from various tables based on timestamp
+            conn.execute("DELETE FROM strategy_metrics WHERE timestamp < datetime('now', ?)", (f'-{days} days',))
+            conn.execute("DELETE FROM strategy_logs WHERE timestamp < datetime('now', ?)", (f'-{days} days',))
+            # We keep trades and orders for tax/history, but prune strategy noise
+            conn.commit()
+            logger.info("Database pruning complete.")

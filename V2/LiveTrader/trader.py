@@ -34,27 +34,27 @@ class LiveTrader:
                 self._execute_sell(signal)
     
     def _execute_buy(self, signal: Signal):
+        """Execute buy order, handling both new longs and short coverings."""
         quantity = signal.quantity or self._calculate_quantity(signal.symbol, signal.price)
         
         try:
             order_id = self.buy_action.execute(signal.symbol, quantity)
-            logger.info(f"Live buy order placed: {order_id} for {quantity} {signal.symbol}")
+            logger.info(f"Live BUY order placed: {order_id} for {quantity} {signal.symbol}")
         except Exception as e:
             logger.error(f"Error placing buy order: {e}")
     
     def _execute_sell(self, signal: Signal):
+        """Execute sell order, handling both new shorts and long exits."""
         positions = self.portfolio.get_positions()
         
-        if signal.symbol not in positions:
-            logger.warning(f"No position to sell: {signal.symbol}")
-            return
-        
-        pos = positions[signal.symbol]
-        quantity = signal.quantity or pos.quantity
+        # If we have a position, use its quantity as fallback
+        # If we don't, calculate a new short-entry quantity
+        pos = positions.get(signal.symbol)
+        quantity = signal.quantity or (pos.quantity if pos else self._calculate_quantity(signal.symbol, signal.price))
         
         try:
             order_id = self.sell_action.execute(signal.symbol, quantity)
-            logger.info(f"Live sell order placed: {order_id} for {quantity} {signal.symbol}")
+            logger.info(f"Live SELL order placed: {order_id} for {quantity} {signal.symbol}")
         except Exception as e:
             logger.error(f"Error placing sell order: {e}")
     
