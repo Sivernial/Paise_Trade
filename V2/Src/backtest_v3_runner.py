@@ -4,6 +4,7 @@ sys.path.insert(0, os.path.abspath(os.path.join(os.path.dirname(__file__), '..')
 
 from datetime import datetime, timedelta
 import logging
+import json
 from Backtesting import BacktestEngine, HistoricalDataFetcher
 from Algorithms.multi_factor_strategy import MultiFactorStrategy
 from login import get_kite_instance
@@ -16,7 +17,8 @@ BASKETS = {
     'Banking': ['SBIN', 'PNB', 'BANKBARODA', 'CANBK', 'IDFCFIRSTB'],
     'IT': ['INFY', 'TCS', 'HCLTECH', 'TECHM', 'WIPRO'],
     'Auto': ['MARUTI', 'M&M', 'TMPV', 'BAJAJ-AUTO', 'EICHERMOT'],
-    'Pharma': ['SUNPHARMA', 'CIPLA', 'DRREDDY', 'DIVISLAB']
+    'Pharma': ['SUNPHARMA', 'CIPLA', 'DRREDDY', 'DIVISLAB'],
+    'Energy': ['RELIANCE', 'NTPC', 'POWERGRID', 'ONGC', 'COALINDIA']
 }
 
 def run_v3_backtest():
@@ -42,9 +44,22 @@ def run_v3_backtest():
             'Banking': 2.0,
             'IT': 2.5,
             'Auto': 2.5,
-            'Pharma': 2.5
+            'Pharma': 2.5,
+            'Energy': 2.5
         }
     }
+    
+    # Try to load optimized thresholds (Phase 34)
+    path = "strategy_config.json"
+    if os.path.exists(path):
+        try:
+            with open(path, 'r') as f:
+                config = json.load(f)
+                strategy_params['symbol_thresholds'] = config.get('symbol_thresholds', {})
+                logger.info("Backtest: Loaded AUTOMATED Z-TUNING configuration.")
+        except Exception as e:
+            logger.error(f"Failed to load strategy_config.json for backtest: {e}")
+
     strategy = MultiFactorStrategy(params=strategy_params)
     
     # 3. Setup Engine

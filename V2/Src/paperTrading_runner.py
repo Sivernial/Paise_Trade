@@ -28,7 +28,8 @@ BASKETS = {
     'Banking': ['SBIN', 'PNB', 'BANKBARODA', 'CANBK', 'IDFCFIRSTB'],
     'IT': ['INFY', 'TCS', 'HCLTECH', 'TECHM', 'WIPRO'],
     'Auto': ['MARUTI', 'M&M', 'TMPV', 'BAJAJ-AUTO', 'EICHERMOT'],
-    'Pharma': ['SUNPHARMA', 'CIPLA', 'DRREDDY', 'DIVISLAB']
+    'Pharma': ['SUNPHARMA', 'CIPLA', 'DRREDDY', 'DIVISLAB'],
+    'Energy': ['RELIANCE', 'NTPC', 'POWERGRID', 'ONGC', 'COALINDIA']
 }
 SYMBOLS = [s for basket in BASKETS.values() for s in basket]
 INTERVAL_MIN = 5
@@ -56,7 +57,8 @@ class PaperRunningSession:
                 'Banking': 2.0,
                 'IT': 2.5,
                 'Auto': 2.5,
-                'Pharma': 2.5
+                'Pharma': 2.5,
+                'Energy': 2.5
             },
             'lookback': LOOKBACK_WINDOW,
             'n_components': 1
@@ -82,6 +84,14 @@ class PaperRunningSession:
             except Exception as e:
                 logger.error(f"Failed to load strategy_config.json: {e}")
         return None
+        
+    def _reload_config(self):
+        """Reload the strategy configuration dynamically."""
+        new_config = self._load_strategy_config()
+        if new_config:
+            # Update the strategy's internal params dict in-place
+            self.strategy.params['symbol_thresholds'] = new_config.get('symbol_thresholds', {})
+            logger.info("Auto-Tuning: Configuration reloaded with new Z-thresholds.")
 
     def setup(self):
         # 1. Fetch initial history (Warmup)
@@ -141,6 +151,7 @@ class PaperRunningSession:
                 if now_str != self.current_date_str:
                     logger.info(f"Day change detected. Generating report for {self.current_date_str}")
                     self.reporter.generate_daily_report(self.current_date_str)
+                    self._reload_config() # Reload optimized params for the new day
                     self.current_date_str = now_str
 
                 status = self.trader.get_status()

@@ -40,15 +40,16 @@ class TuningEngine:
                 # We want a threshold that is high enough to be 'extreme'
                 # but low enough to catch moves.
                 
-                # We filter for 'REVERT' regimes (where our strategy is supposed to work)
-                revert_moves = s_data[s_data['regime'] == 'REVERT']['z_score'].abs()
+                # We filter for 'CALM' regimes (where our strategy trades)
+                # We want the threshold to be at the edge of the noise, i.e., 
+                # the 95th percentile of the Z-score distribution in this regime.
+                revert_moves = s_data[s_data['regime'] == 'CALM']['z_score'].abs()
                 
                 if not revert_moves.empty:
-                    # We take the 80th percentile of Z-scores in reverting regimes.
-                    # This ensures we enter on 'shorter' extremes within that stock's normal distribution.
-                    suggested_z = round(revert_moves.quantile(0.8), 2)
-                    # Stay within sane bounds [1.5, 3.5]
-                    suggested_z = max(1.5, min(3.5, suggested_z))
+                    # 95th percentile represents the 'rare' event in the Calm regime
+                    suggested_z = round(revert_moves.quantile(0.95), 2)
+                    # Stay within sane bounds [1.8, 3.5] to prevent over-tightening or loosening
+                    suggested_z = max(1.8, min(3.5, suggested_z))
                     optimized_config[symbol] = suggested_z
                 else:
                     optimized_config[symbol] = 2.5 # Default fallback
