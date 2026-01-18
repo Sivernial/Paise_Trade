@@ -19,7 +19,11 @@ class MultiFactorStrategy(BaseStrategy):
     def __init__(self, params: dict = None):
         self.params = params or {}
         self.baskets = self.params.get('baskets', {
-            'Banking': ['SBIN', 'PNB', 'BANKBARODA', 'CANBK', 'IDFCFIRSTB']
+            'Banking': ['SBIN', 'PNB', 'BANKBARODA', 'CANBK', 'IDFCFIRSTB'],
+            'IT': ['INFY', 'TCS', 'HCLTECH', 'TECHM', 'WIPRO'],
+            'Auto': ['MARUTI', 'M&M', 'TMPV', 'BAJAJ-AUTO', 'EICHERMOT'],
+            'Pharma': ['SUNPHARMA', 'CIPLA', 'DRREDDY', 'DIVISLAB'],
+            'Energy': ['RELIANCE', 'NTPC', 'POWERGRID', 'ONGC', 'COALINDIA']
         })
         self.z_threshold = self.params.get('z_threshold', 2.0)
         self.exit_z_threshold = self.params.get('exit_z_threshold', 1.0) # Greedier profit booking
