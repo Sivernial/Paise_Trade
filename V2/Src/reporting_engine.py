@@ -3,7 +3,7 @@ import pandas as pd
 from datetime import datetime, timedelta
 import sqlite3
 import logging
-from .tuning_engine import TuningEngine
+from tuning_engine import TuningEngine
 
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)

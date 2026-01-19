@@ -13,7 +13,7 @@ class TuningEngine:
         self.db_path = db_path
         self.config_path = config_path
 
-    def optimize_thresholds(self, lookback_days=14):
+    def optimize_thresholds(self, lookback_days=3):
         """
         Analyze performance data and find optimal Z-thresholds per symbol.
         Logic: Find the Z-score that maximizes (Reversion Profit - Trending Losses).
