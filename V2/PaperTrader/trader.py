@@ -57,6 +57,30 @@ class PaperTrader:
             elif signal.signal_type == SignalType.EXIT:
                 self._execute_exit(signal)
     
+    def check_security(self):
+        """
+        High-frequency check for SL/TP on every tick.
+        """
+        positions = self.portfolio.get_positions()
+        for symbol in list(positions.keys()):
+            price = self.current_prices.get(symbol)
+            if not price: continue
+            
+            # Update internal prices for trailing/pnl calc
+            self.portfolio.update_position_prices(symbol, price)
+            
+            # Check Stop Loss
+            if self.portfolio.check_stop_loss(symbol):
+                reason = f"SECURITY EXIT: Stop Loss hit at {price:.2f}"
+                logger.warning(reason)
+                self._execute_exit(Signal(symbol, SignalType.EXIT, price, datetime.now(), 0, reason))
+                
+            # Check Profit Target
+            elif self.portfolio.check_target(symbol):
+                reason = f"SECURITY EXIT: Profit Target hit at {price:.2f}"
+                logger.info(reason)
+                self._execute_exit(Signal(symbol, SignalType.EXIT, price, datetime.now(), 0, reason))
+    
     def _execute_exit(self, signal: Signal):
         """Flatten any existing position for the symbol."""
         positions = self.portfolio.get_positions()
