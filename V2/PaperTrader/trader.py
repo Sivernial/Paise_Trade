@@ -114,8 +114,16 @@ class PaperTrader:
         price = signal.price
         quantity = signal.quantity 
         
-        if quantity <= 0:
-            # Fallback or error
+        # Check if we're covering a short position
+        positions = self.portfolio.get_positions()
+        pos = positions.get(signal.symbol)
+        
+        if pos and pos.quantity < 0 and quantity <= 0:
+            # Covering a short - use full position quantity
+            quantity = abs(pos.quantity)
+            logger.info(f"Covering SHORT position: {signal.symbol} Qty: {quantity}")
+        elif quantity <= 0:
+            # New BUY or no position - use default calculation
             quantity = self._calculate_default_quantity(price)
             
         logger.info(f"Generated BUY order: {signal.symbol} Qty: {quantity} @ {price}")
@@ -140,7 +148,16 @@ class PaperTrader:
         price = signal.price
         quantity = signal.quantity
         
-        if quantity <= 0:
+        # Check if we're covering a long position
+        positions = self.portfolio.get_positions()
+        pos = positions.get(signal.symbol)
+        
+        if pos and pos.quantity > 0 and quantity <= 0:
+            # Covering a long - use full position quantity
+            quantity = abs(pos.quantity)
+            logger.info(f"Covering LONG position: {signal.symbol} Qty: {quantity}")
+        elif quantity <= 0:
+            # New SELL (short) or no position - use default calculation
             quantity = self._calculate_default_quantity(price)
             
         logger.info(f"Generated SELL order: {signal.symbol} Qty: {quantity} @ {price}")
@@ -162,8 +179,12 @@ class PaperTrader:
                 self.trade_repo.save_trade(res)
 
     def _calculate_default_quantity(self, price: float) -> int:
-        # Default 10% allocation
-        alloc = self.portfolio.cash * 0.1
+        # Respect the strategy's defined capital cap if present
+        max_cap = self.strategy.params.get('max_capital')
+        base_capital = min(self.portfolio.cash, max_cap) if max_cap else self.portfolio.cash
+        
+        # Default 10% allocation of the base capital
+        alloc = base_capital * 0.1
         return max(1, int(alloc / price))
 
     def get_status(self) -> dict:

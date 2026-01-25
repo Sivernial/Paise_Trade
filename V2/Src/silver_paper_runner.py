@@ -11,7 +11,7 @@ sys.path.append(os.path.abspath(os.path.join(os.path.dirname(__file__), '..')))
 from PaperTrader import PaperTrader
 from DataStream_Engine import DataStream
 from DataStream_Engine.aggregator import TickAggregator
-from Algorithms.silver_sentinel_strategy import SilverSentinelStrategy
+from Algorithms.silver_sentinel_3tf_strategy import SilverSentinel3TFStrategy
 from Database import DatabaseConnection, TradeRepository 
 from reporting_engine import ReportingEngine
 from Backtesting.config import BacktestConfig
@@ -22,13 +22,15 @@ logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(name)s - %(level
 logger = logging.getLogger(__name__)
 
 SYMBOL = "SILVERBEES"
-LOOKBACK_10M = 100
+LOOKBACK_10M = 110
+LOOKBACK_30M = 60
 LOOKBACK_1H = 50
 
 class SilverSentinelSession:
     def __init__(self):
         self.kite = get_kite_instance()
         self.history_10m: pd.DataFrame = None
+        self.history_30m: pd.DataFrame = None
         self.history_1h: pd.DataFrame = None
         self.instrument_token = None
         self.db = DatabaseConnection() 
@@ -36,21 +38,26 @@ class SilverSentinelSession:
         self.reporter = ReportingEngine()
         self.current_date_str = datetime.now().strftime('%Y-%m-%d')
         
-        logger.info(f"Initializing Phase 41: SILVER SENTINEL MTFA SESSION")
+        logger.info(f"Initializing Phase 52: SILVER SENTINEL 3-TIMEFRAME MTFA SESSION")
         
-        # Init Strategy with Refined Parameters
-        self.strategy = SilverSentinelStrategy(params={
+        # Init Strategy with 3TF Parameters
+        self.strategy = SilverSentinel3TFStrategy(params={
             'leverage': 4.0,
-            'opening_noise_mins': 10,
+            'max_capital': 40000,
+            'opening_noise_mins': 5,
             'profit_target': 0.005,
-            'stop_loss': 0.0025
+            'stop_loss': 0.0025,
+            'sky_ema': 20,
+            'forest_ema': 9,
+            'tree_ema': 9
         })
         
         # Init Trader
         self.trader = PaperTrader(self.strategy, initial_capital=BacktestConfig.INITIAL_CAPITAL, trade_repo=self.trade_repo)
         
-        # Dual Aggregators
+        # Triple Aggregators
         self.agg_10m = TickAggregator(interval_minutes=10)
+        self.agg_30m = TickAggregator(interval_minutes=30)
         self.agg_1h = TickAggregator(interval_minutes=60)
         
     def setup(self):
@@ -66,7 +73,15 @@ class SilverSentinelSession:
             self.history_10m = df_10m.tail(LOOKBACK_10M)
             logger.info(f"Loaded {len(self.history_10m)} 10m bars")
             
-        # 2. Warmup 1h
+        # 2. Warmup 30m
+        start_30m = end_date - timedelta(days=10)
+        df_30m = fetcher.fetch_historical_data(SYMBOL, start_30m, end_date, interval="30minute")
+        if not df_30m.empty:
+            if df_30m.index.tz: df_30m.index = df_30m.index.tz_localize(None)
+            self.history_30m = df_30m.tail(LOOKBACK_30M)
+            logger.info(f"Loaded {len(self.history_30m)} 30m bars")
+            
+        # 3. Warmup 1h
         start_1h = end_date - timedelta(days=20)
         df_1h = fetcher.fetch_historical_data(SYMBOL, start_1h, end_date, interval="60minute")
         if not df_1h.empty:
@@ -97,11 +112,12 @@ class SilverSentinelSession:
         stream.subscribe([self.instrument_token])
         stream.add_callback(self.on_tick)
         
-        # Callbacks for both aggregators
+        # Callbacks for all aggregators
         self.agg_10m.add_callback(self.on_10m_closed)
+        self.agg_30m.add_callback(self.on_30m_closed)
         self.agg_1h.add_callback(self.on_1h_closed)
         
-        logger.info(f"SILVER SENTINEL MTFA ONLINE: Monitoring {SYMBOL}")
+        logger.info(f"SILVER 3TF MTFA ONLINE: Monitoring {SYMBOL}")
         stream.start()
         
         try:
@@ -116,6 +132,7 @@ class SilverSentinelSession:
     def on_tick(self, tick):
         if isinstance(tick, list):
             self.agg_10m.on_tick(tick)
+            self.agg_30m.on_tick(tick)
             self.agg_1h.on_tick(tick)
             for t in tick:
                 if t.get('instrument_token') == self.instrument_token:
@@ -125,6 +142,7 @@ class SilverSentinelSession:
             self.trader.check_security()
         else:
             self.agg_10m.on_tick([tick])
+            self.agg_30m.on_tick([tick])
             self.agg_1h.on_tick([tick])
             if tick.get('instrument_token') == self.instrument_token:
                 self.trader.current_prices[SYMBOL] = tick.get('last_price')
@@ -143,6 +161,18 @@ class SilverSentinelSession:
         self.history_10m = self.history_10m.iloc[-LOOKBACK_10M:]
         self.run_strategy()
 
+    def on_30m_closed(self, token, candle):
+        if token != self.instrument_token: return
+        if candle.index.tz: candle.index = candle.index.tz_localize(None)
+        
+        if self.history_30m is None: self.history_30m = candle
+        else:
+            self.history_30m = pd.concat([self.history_30m, candle])
+            self.history_30m = self.history_30m[~self.history_30m.index.duplicated(keep='last')]
+        
+        self.history_30m = self.history_30m.iloc[-LOOKBACK_30M:]
+        logger.info(f"SILVER Forest Updated (30m): {candle['close'].iloc[-1]:.2f}")
+
     def on_1h_closed(self, token, candle):
         if token != self.instrument_token: return
         if candle.index.tz: candle.index = candle.index.tz_localize(None)
@@ -156,12 +186,13 @@ class SilverSentinelSession:
         logger.info(f"Forest Updated (1H): {candle['close'].iloc[-1]:.2f}")
 
     def run_strategy(self):
-        if self.history_10m is None or self.history_1h is None: return
+        if self.history_10m is None or self.history_30m is None or self.history_1h is None: return
         try:
             data_map = {
                 SYMBOL: {
-                    '10m': self.history_10m,
-                    '1h': self.history_1h
+                    '10minute': self.history_10m,
+                    '30minute': self.history_30m,
+                    '1hour': self.history_1h
                 }
             }
             equity = self.trader.get_status()['total_value']

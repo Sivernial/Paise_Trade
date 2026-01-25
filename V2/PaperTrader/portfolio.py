@@ -39,11 +39,6 @@ class PaperPortfolio:
             pos = self.positions[order.symbol]
             
             # If closing or reducing a position, calculate realized PnL
-            # For longs (qty > 0): PnL = (Exit - Entry) * QtySold
-            # For shorts (qty < 0): PnL = (Entry - Exit) * QtyBoughtBack
-            # Simplified: PnL = (current_price - entry_price) * QtyDelta_IfClosing
-            # But the direction matters. 
-            
             if (is_buy and pos.quantity < 0) or (not is_buy and pos.quantity > 0):
                 # We are closing or reversing
                 qty_closed = min(abs(pos.quantity), order.quantity)
@@ -54,13 +49,16 @@ class PaperPortfolio:
                 pos.realized_pnl += pnl
                 logger.info(f"PnL Realized for {order.symbol}: {pnl:.2f}")
 
-            # Update Entry Price (Weighted Average for increasing, or keeping same for reducing)
-            # If we are increasing in the same direction:
+            # Update Entry Price (Weighted Average for increasing)
             if (is_buy and pos.quantity >= 0) or (not is_buy and pos.quantity <= 0):
                  total_cost = abs(pos.quantity) * pos.entry_price + order.quantity * current_price
                  total_qty = abs(pos.quantity) + order.quantity
                  pos.entry_price = total_cost / total_qty if total_qty != 0 else current_price
             
+            # Capture data for trade recording if we closing
+            entry_date = pos.entry_date
+            entry_price = pos.entry_price
+
             pos.quantity += qty_delta
             
             if pos.quantity == 0:
@@ -68,7 +66,7 @@ class PaperPortfolio:
                 del self.positions[order.symbol]
         else:
             # Create new position (long or short)
-            self.positions[order.symbol] = Position(
+            pos = Position(
                 symbol=order.symbol,
                 quantity=qty_delta,
                 entry_price=current_price,
@@ -82,24 +80,24 @@ class PaperPortfolio:
                 breakeven_trigger=signal.breakeven_trigger if signal else None,
                 partial_exit_trigger=signal.partial_exit_trigger if signal else None
             )
+            self.positions[order.symbol] = pos
+            qty_closed = 0
         
         self.orders.append(order)
-        
-        # Return trade info if a position was closed/reduced for recording
-        if (is_buy and pos.quantity + qty_delta <= pos.quantity) or (not is_buy and pos.quantity + qty_delta >= pos.quantity):
-            # This is complex, let's just return a dict if pnl was realized
-            if 'pnl' in locals() and pnl != 0:
-                return {
-                    'symbol': order.symbol,
-                    'entry_time': pos.entry_date,
-                    'exit_time': datetime.now(),
-                    'entry_price': pos.entry_price,
-                    'exit_price': current_price,
-                    'quantity': qty_closed,
-                    'side': 'SELL' if not is_buy else 'BUY',
-                    'pnl': pnl,
-                    'mode': 'paper'
-                }
+
+        # Return trade info if PnL was realized (for database logging)
+        if 'pnl' in locals() and pnl != 0:
+            return {
+                'symbol': order.symbol,
+                'entry_time': entry_date,
+                'exit_time': datetime.now(),
+                'entry_price': entry_price,
+                'exit_price': current_price,
+                'quantity': qty_closed,
+                'side': 'SELL' if not is_buy else 'BUY',
+                'pnl': pnl,
+                'mode': 'paper'
+            }
         
         return True
     

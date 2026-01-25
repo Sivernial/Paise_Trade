@@ -9,22 +9,26 @@ from Common.quant_utils import calculate_vwap, calculate_rsi
 
 logger = logging.getLogger(__name__)
 
-class SilverSentinelStrategy(BaseStrategy):
+class SilverSentinel3TFStrategy(BaseStrategy):
     """
-    Phase 41: Silver Sentinel (SILVERBEES).
-    Uses Multi-Timeframe Analysis (MTFA):
-    - 1 Hour (The Forest): EMA 20 for Trend Bias.
-    - 10 Minutes (The Trees): VWAP and EMA 9 for Execution.
+    Phase 52: Silver Sentinel 3-Timeframe MTFA (SILVERBEES).
+    Uses 3-Layer Multi-Timeframe Analysis:
+    - 1 Hour (The Sky): EMA 20 for Overall Market Direction
+    - 30 Minutes (The Forest): EMA 9 for Confirmation Filter
+    - 10 Minutes (The Trees): VWAP and EMA 9 for Precise Execution
     
-    Phase 46: Added Opening Noise Filter and Gap Alignment.
+    Reduces false signals by requiring all 3 timeframes to align.
     """
     def __init__(self, params: dict = None):
         super().__init__(params=params)
         self.params = params or {}
         self.symbol = "SILVERBEES"
         
-        # 1H (Forest) Parameters
-        self.forest_ema_period = self.params.get('forest_ema', 20)
+        # 1H (Sky) Parameters
+        self.sky_ema_period = self.params.get('sky_ema', 20)
+        
+        # 30m (Forest) Parameters  
+        self.forest_ema_period = self.params.get('forest_ema', 9)
         
         # 10m (Trees) Parameters
         self.tree_ema_period = self.params.get('tree_ema', 9)
@@ -37,8 +41,8 @@ class SilverSentinelStrategy(BaseStrategy):
         self.max_capital = self.params.get('max_capital')
         
         # Gap & Noise Handling
-        # Skip first 10 minutes (9:15-9:25) to avoid open noise as per user request
-        self.opening_noise_mins = self.params.get('opening_noise_mins', 10)
+        # Skip first 5 minutes (9:15-9:20) to avoid open noise
+        self.opening_noise_mins = self.params.get('opening_noise_mins', 5)
         self.allow_alignment_entry = self.params.get('allow_alignment_entry', True)
         
         self.trade_info: Dict[str, dict] = {}
@@ -48,8 +52,8 @@ class SilverSentinelStrategy(BaseStrategy):
                         current_date: datetime, capital: float = 100000,
                         existing_positions: List[str] = None) -> List[Signal]:
         """
-        Generate signals based on dual-timeframe data.
-        Expected data structure: { 'SILVERBEES': { '10m': df_10m, '1h': df_1h } }
+        Generate signals based on 3-timeframe data.
+        Expected data structure: { 'SILVERBEES': { '10minute': df_10m, '30minute': df_30m, '1hour': df_1h } }
         """
         signals = []
         existing_positions = existing_positions or []
@@ -58,48 +62,56 @@ class SilverSentinelStrategy(BaseStrategy):
             return signals
             
         dfs = data[self.symbol]
-        # Support both '10m' and '10minute' / '1h' and '60minute'
-        df_10m = dfs.get('10m')
+        
+        # Fetch all 3 timeframes
+        df_10m = dfs.get('10minute')
         if df_10m is None:
-            df_10m = dfs.get('10minute')
+            df_10m = dfs.get('10m')
             
-        df_1h = dfs.get('1h')
+        df_30m = dfs.get('30minute')
+        if df_30m is None:
+            df_30m = dfs.get('30m')
+            
+        df_1h = dfs.get('1hour')
         if df_1h is None:
             df_1h = dfs.get('60minute')
+        if df_1h is None:
+            df_1h = dfs.get('1h')
         
-        if df_10m is None or df_1h is None:
+        if df_10m is None or df_30m is None or df_1h is None:
             logger.warning(f"Missing timeframe data for {self.symbol}")
             return signals
             
         df_10m = df_10m.copy()
+        df_30m = df_30m.copy()
         df_1h = df_1h.copy()
         
-        if len(df_10m) < 2 or len(df_1h) < self.forest_ema_period:
+        if len(df_10m) < 2 or len(df_30m) < self.forest_ema_period or len(df_1h) < self.sky_ema_period:
             return signals
 
-        # 1. THE FOREST (1H Trend Bias)
-        df_1h['ema_forest'] = df_1h['close'].ewm(span=self.forest_ema_period, adjust=False).mean()
-        
-        # Phase 49 Fix: Use current LTP from the execution timeframe (10m) 
-        # to determine Forest Bias accurately during gaps.
+        # 1. THE SKY (1H Overall Direction)
+        df_1h['ema_sky'] = df_1h['close'].ewm(span=self.sky_ema_period, adjust=False).mean()
         price = df_10m['close'].iloc[-1]
-        last_forest_ema = df_1h['ema_forest'].iloc[-1]
+        last_sky_ema = df_1h['ema_sky'].iloc[-1]
+        sky_bias = "BULLISH" if price > last_sky_ema else "BEARISH"
         
+        # 2. THE FOREST (30m Confirmation)
+        df_30m['ema_forest'] = df_30m['close'].ewm(span=self.forest_ema_period, adjust=False).mean()
+        last_forest_ema = df_30m['ema_forest'].iloc[-1]
         forest_bias = "BULLISH" if price > last_forest_ema else "BEARISH"
         
-        # 2. THE TREES (10m Execution)
+        # 3.  THE TREES (10m Execution)
         df_10m['vwap'] = calculate_vwap(df_10m)
         df_10m['ema_tree'] = df_10m['close'].ewm(span=self.tree_ema_period, adjust=False).mean()
         df_10m['rsi'] = calculate_rsi(df_10m['close'], self.rsi_period)
         
-        price = df_10m['close'].iloc[-1]
         prev_price = df_10m['close'].iloc[-2]
         vwap = df_10m['vwap'].iloc[-1]
         curr_ema_tree = df_10m['ema_tree'].iloc[-1]
         prev_ema_tree = df_10m['ema_tree'].iloc[-2]
         
-        # Strategy Status Logging for Visibility
-        logger.info(f"STRATEGY MONITOR | {self.symbol} | Price: {price:.2f} | EMA9: {curr_ema_tree:.2f} | VWAP: {vwap:.2f} | Forest: {forest_bias}")
+        # Strategy Status Logging
+        logger.info(f"3TF MONITOR | {self.symbol} | Price: {price:.2f} | Sky: {sky_bias} | Forest: {forest_bias} | EMA9: {curr_ema_tree:.2f}")
         
         has_pos = self.symbol in existing_positions
 
@@ -119,57 +131,59 @@ class SilverSentinelStrategy(BaseStrategy):
                 self.last_reset_date = curr_date_only
                 is_first_check_today = True
 
-            if forest_bias == "BULLISH":
-                # Entry: Price crosses above EMA 9 OR is already aligned at the start
-                is_crossover = prev_price <= prev_ema_tree and price > curr_ema_tree
-                is_aligned = price >= curr_ema_tree and price >= vwap
-                
-                if is_crossover or (self.allow_alignment_entry and is_first_check_today and is_aligned):
-                    entry_type = "CROSSOVER" if is_crossover else "ALIGNMENT (GAP)"
-                    reason = f"BY BUY: {entry_type} | Forest BULL | Tree Above EMA9 & VWAP @ {price:.2f}"
-                    qty = self._calculate_quantity(capital, price)
+            # 3-WAY FILTER: All timeframes must align
+            if sky_bias == forest_bias:  # Sky and Forest must agree
+                if sky_bias == "BULLISH":
+                    # Entry: Price crosses above EMA 9 OR is already aligned at the start
+                    is_crossover = prev_price <= prev_ema_tree and price > curr_ema_tree
+                    is_aligned = price >= curr_ema_tree and price >= vwap
                     
-                    sl_price = price * (1 - self.stop_loss_pct)
-                    tp_price = price * (1 + self.profit_target_pct)
+                    if is_crossover or (self.allow_alignment_entry and is_first_check_today and is_aligned):
+                        entry_type = "CROSSOVER" if is_crossover else "ALIGNMENT (GAP)"
+                        reason = f"3TF BUY: {entry_type} | Sky+Forest BULL | Tree Xover @ {price:.2f}"
+                        qty = self._calculate_quantity(capital, price)
+                        
+                        sl_price = price * (1 - self.stop_loss_pct)
+                        tp_price = price * (1 + self.profit_target_pct)
+                        
+                        signals.append(Signal(
+                            symbol=self.symbol,
+                            signal_type=SignalType.BUY,
+                            price=price,
+                            timestamp=current_date,
+                            quantity=qty,
+                            reason=reason,
+                            stop_loss=sl_price,
+                            target=tp_price
+                        ))
+                        self.trade_info[self.symbol] = {'entry_price': price, 'side': 'LONG'}
+                        logger.info(f"SIGNAL: {reason} | SL: {sl_price:.2f} | TP: {tp_price:.2f}")
+                        
+                elif sky_bias == "BEARISH":
+                    # Entry: Price crosses below EMA 9 OR is already aligned at the start
+                    is_crossdown = prev_price >= prev_ema_tree and price < curr_ema_tree
+                    is_aligned = price <= curr_ema_tree and price <= vwap
                     
-                    signals.append(Signal(
-                        symbol=self.symbol,
-                        signal_type=SignalType.BUY,
-                        price=price,
-                        timestamp=current_date,
-                        quantity=qty,
-                        reason=reason,
-                        stop_loss=sl_price,
-                        target=tp_price
-                    ))
-                    self.trade_info[self.symbol] = {'entry_price': price, 'side': 'LONG'}
-                    logger.info(f"SIGNAL: {reason} | SL: {sl_price:.2f} | TP: {tp_price:.2f}")
-                    
-            elif forest_bias == "BEARISH":
-                # Entry: Price crosses below EMA 9 OR is already aligned at the start
-                is_crossdown = prev_price >= prev_ema_tree and price < curr_ema_tree
-                is_aligned = price <= curr_ema_tree and price <= vwap
-                
-                if is_crossdown or (self.allow_alignment_entry and is_first_check_today and is_aligned):
-                    entry_type = "CROSSOVER" if is_crossdown else "ALIGNMENT (GAP)"
-                    reason = f"BY SELL (SHORT): {entry_type} | Forest BEAR | Tree Below EMA9 & VWAP @ {price:.2f}"
-                    qty = self._calculate_quantity(capital, price)
-                    
-                    sl_price = price * (1 + self.stop_loss_pct)
-                    tp_price = price * (1 - self.profit_target_pct)
-                    
-                    signals.append(Signal(
-                        symbol=self.symbol,
-                        signal_type=SignalType.SELL,
-                        price=price,
-                        timestamp=current_date,
-                        quantity=qty,
-                        reason=reason,
-                        stop_loss=sl_price,
-                        target=tp_price
-                    ))
-                    self.trade_info[self.symbol] = {'entry_price': price, 'side': 'SHORT'}
-                    logger.info(f"SIGNAL: {reason} | SL: {sl_price:.2f} | TP: {tp_price:.2f}")
+                    if is_crossdown or (self.allow_alignment_entry and is_first_check_today and is_aligned):
+                        entry_type = "CROSSOVER" if is_crossdown else "ALIGNMENT (GAP)"
+                        reason = f"3TF SELL (SHORT): {entry_type} | Sky+Forest BEAR | Tree Xover @ {price:.2f}"
+                        qty = self._calculate_quantity(capital, price)
+                        
+                        sl_price = price * (1 + self.stop_loss_pct)
+                        tp_price = price * (1 - self.profit_target_pct)
+                        
+                        signals.append(Signal(
+                            symbol=self.symbol,
+                            signal_type=SignalType.SELL,
+                            price=price,
+                            timestamp=current_date,
+                            quantity=qty,
+                            reason=reason,
+                            stop_loss=sl_price,
+                            target=tp_price
+                        ))
+                        self.trade_info[self.symbol] = {'entry_price': price, 'side': 'SHORT'}
+                        logger.info(f"SIGNAL: {reason} | SL: {sl_price:.2f} | TP: {tp_price:.2f}")
 
         # 4. Exit Logic
         else:

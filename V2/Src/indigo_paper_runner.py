@@ -11,7 +11,7 @@ sys.path.append(os.path.abspath(os.path.join(os.path.dirname(__file__), '..')))
 from PaperTrader import PaperTrader
 from DataStream_Engine import DataStream
 from DataStream_Engine.aggregator import TickAggregator
-from Algorithms.itc_3tf_strategy import ITC3TFStrategy
+from Algorithms.indigo_3tf_strategy import Indigo3TFStrategy
 from Database import DatabaseConnection, TradeRepository 
 from reporting_engine import ReportingEngine
 from Backtesting.config import BacktestConfig
@@ -21,12 +21,12 @@ from login import get_kite_instance
 logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(name)s - %(levelname)s - %(message)s')
 logger = logging.getLogger(__name__)
 
-SYMBOL = "ITC"
+SYMBOL = "INDIGO"
 LOOKBACK_10M = 110
 LOOKBACK_30M = 60
 LOOKBACK_1H = 50
 
-class ITCRefinedSession:
+class IndigoRefinedSession:
     def __init__(self):
         self.kite = get_kite_instance()
         self.history_10m: pd.DataFrame = None
@@ -38,18 +38,17 @@ class ITCRefinedSession:
         self.reporter = ReportingEngine()
         self.current_date_str = datetime.now().strftime('%Y-%m-%d')
         
-        logger.info(f"Initializing Phase 52: ITC 3-TIMEFRAME MTFA SESSION")
+        logger.info(f"Initializing Phase 52: INDIGO 3-TIMEFRAME MTFA SESSION")
         
         # Init Strategy with 3TF Parameters
-        self.strategy = ITC3TFStrategy(params={
+        self.strategy = Indigo3TFStrategy(params={
             'leverage': 4.0,
             'max_capital': 40000,
-            'profit_target': 0.015,
-            'stop_loss': 0.005,
+            'profit_target': 0.025,
+            'stop_loss': 0.01,
             'sky_ema_period': 20,
             'forest_ema_period': 9,
-            'tree_ema_period': 9,
-            'opening_noise_mins': 5
+            'tree_ema_period': 9
         })
         
         # Init Trader
@@ -117,16 +116,16 @@ class ITCRefinedSession:
         self.agg_30m.add_callback(self.on_30m_closed)
         self.agg_1h.add_callback(self.on_1h_closed)
         
-        logger.info(f"ITC 3TF MTFA ONLINE: Monitoring {SYMBOL}")
+        logger.info(f"INDIGO 3TF MTFA ONLINE: Monitoring {SYMBOL}")
         stream.start()
         
         try:
             while True:
                 time.sleep(30)
                 status = self.trader.get_status()
-                logger.info(f"ITC PnL: ₹{status['total_value'] - BacktestConfig.INITIAL_CAPITAL:.2f} | Pos: {len(status['portfolio']['positions'])}")
+                logger.info(f"INDIGO PnL: ₹{status['total_value'] - BacktestConfig.INITIAL_CAPITAL:.2f} | Pos: {len(status['portfolio']['positions'])}")
         except KeyboardInterrupt:
-            logger.info("Stopping ITC Refined Session...")
+            logger.info("Stopping INDIGO Refined Session...")
             stream.stop()
 
     def on_tick(self, tick):
@@ -171,7 +170,7 @@ class ITCRefinedSession:
             self.history_30m = self.history_30m[~self.history_30m.index.duplicated(keep='last')]
         
         self.history_30m = self.history_30m.iloc[-LOOKBACK_30M:]
-        logger.info(f"ITC Forest Updated (30m): {candle['close'].iloc[-1]:.2f}")
+        logger.info(f"INDIGO Forest Updated (30m): {candle['close'].iloc[-1]:.2f}")
 
     def on_1h_closed(self, token, candle):
         if token != self.instrument_token: return
@@ -183,7 +182,7 @@ class ITCRefinedSession:
             self.history_1h = self.history_1h[~self.history_1h.index.duplicated(keep='last')]
             
         self.history_1h = self.history_1h.iloc[-LOOKBACK_1H:]
-        logger.info(f"ITC Forest Updated (1H): {candle['close'].iloc[-1]:.2f}")
+        logger.info(f"INDIGO Forest Updated (1H): {candle['close'].iloc[-1]:.2f}")
 
     def run_strategy(self):
         if self.history_10m is None or self.history_30m is None or self.history_1h is None: return
@@ -203,11 +202,11 @@ class ITCRefinedSession:
             )
             
             if signals:
-                logger.info(f"ITC MTFA SIGNAL Triggered: {signals}")
+                logger.info(f"INDIGO MTFA SIGNAL Triggered: {signals}")
                 self.trader.process_signals(signals)
         except Exception as e:
-            logger.error(f"Strategy Error (ITC): {e}", exc_info=True)
+            logger.error(f"Strategy Error (INDIGO): {e}", exc_info=True)
 
 if __name__ == "__main__":
-    session = ITCRefinedSession()
+    session = IndigoRefinedSession()
     session.run()
