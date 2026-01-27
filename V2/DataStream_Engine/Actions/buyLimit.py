@@ -1,5 +1,6 @@
 from .base_action import BaseAction
 from Common import TransactionType, OrderType
+from Common.quant_utils import round_to_tick
 import logging
 
 logger = logging.getLogger(__name__)
@@ -9,6 +10,8 @@ class BuyLimit(BaseAction):
     def execute(self, symbol: str, quantity: int, price: float,
                exchange: str = "NSE", product: str = "MIS", **kwargs) -> str:
         
+        # Safety rounding for tick size
+        price = round_to_tick(price)
         self.validate_order(symbol, quantity, price)
         
         try:

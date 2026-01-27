@@ -14,6 +14,7 @@ from DataStream_Engine import DataStream
 from DataStream_Engine.aggregator import TickAggregator
 from Algorithms.generic_3tf_strategy import Generic3TFStrategy
 from Backtesting.data_fetcher import HistoricalDataFetcher
+from Common.quant_utils import round_to_tick
 from Src.login import get_kite_instance
 from config_3tf import CONFIG
 
@@ -42,6 +43,7 @@ class GenericLiveSession:
         
         # Init LIVE Trader
         self.trader = LiveTrader(self.kite, self.strategy)
+        self.tick_size = params.get('tick_size', 0.05)
         
         # Triple Aggregators
         self.agg_10m = TickAggregator(interval_minutes=10)
@@ -145,7 +147,48 @@ class GenericLiveSession:
                     '1hour': self.history_1h
                 }
             }
-            existing = list(self.trader.portfolio.get_positions().keys())
+            positions = self.trader.portfolio.get_positions()
+            existing = list(positions.keys())
+            
+            # --- SYNC LOGIC: Adopt existing positions on restart ---
+            if self.symbol in existing and self.symbol not in self.trader.security_targets:
+                pos = positions[self.symbol]
+                logger.info(f"SYNC: Adopting existing {self.symbol} position (Qty: {pos.quantity})")
+                
+                # Re-calculate targets from config/price
+                price = self.history_10m['close'].iloc[-1]
+                side = 'LONG' if pos.quantity > 0 else 'SHORT'
+                
+                sl_pct = self.strategy.stop_loss_pct
+                tp_pct = self.strategy.profit_target_pct
+                
+                sl = round_to_tick(pos.entry_price * (1 - sl_pct), self.tick_size) if side == 'LONG' else round_to_tick(pos.entry_price * (1 + sl_pct), self.tick_size)
+                tp = round_to_tick(pos.entry_price * (1 + tp_pct), self.tick_size) if side == 'LONG' else round_to_tick(pos.entry_price * (1 - tp_pct), self.tick_size)
+                be = round_to_tick(pos.entry_price * (1 + tp_pct * 0.7), self.tick_size) if side == 'LONG' else round_to_tick(pos.entry_price * (1 - tp_pct * 0.7), self.tick_size)
+                trail = round_to_tick(pos.entry_price * (1 + tp_pct * 0.9), self.tick_size) if side == 'LONG' else round_to_tick(pos.entry_price * (1 - tp_pct * 0.9), self.tick_size)
+
+                logger.info(f"SYNC: Targets for {self.symbol} - SL: {sl}, TP: {tp}, BE: {be}")
+                
+                self.trader.security_targets[self.symbol] = {
+                    'sl': sl, 'tp': tp, 'be_trig': be, 'trail_trig': trail,
+                    'be_moved': False, 'peak': price
+                }
+                # Also place the limit order if it's new session
+                if self.symbol not in self.trader.active_limit_orders:
+                    try:
+                        if side == 'LONG':
+                            limit_id = self.trader.sell_limit.execute(self.symbol, abs(pos.quantity), tp)
+                        else:
+                            limit_id = self.trader.buy_limit.execute(self.symbol, abs(pos.quantity), tp)
+                        self.trader.active_limit_orders[self.symbol] = limit_id
+                        logger.info(f"SYNC: Placed missing Limit Target for existing {self.symbol} @ {tp:.2f}")
+                    except Exception as e:
+                        logger.warning(f"SYNC: Could not place limit (might already exist): {e}")
+
+                # Update strategy internal state
+                self.strategy.trade_info[self.symbol] = {'entry_price': pos.entry_price, 'side': side}
+            # -------------------------------------------------------
+
             signals = self.strategy.generate_signals(data_map, datetime.now(), existing_positions=existing)
             if signals:
                 logger.info(f"LIVE SIGNAL: {signals}")

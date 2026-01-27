@@ -53,7 +53,7 @@ class MTFAPortfolio:
                         'exit_price': current_price, 'qty': pos['qty'], 'pnl': pnl,
                         'entry_time': pos['entry_time'], 'exit_time': signal.timestamp, 'reason': signal.reason
                     })
-                    logger.info(f"[CLOSE SHORT] {pos['qty']} {symbol} @ {current_price:.2f} | PnL: {pnl:.2f}")
+                    logger.info(f"[CLOSE SHORT] {pos['qty']} {symbol} @ {current_price:.2f} | PnL: {pnl:.2f} | Reason: {signal.reason}")
                     del self.positions[symbol]
 
         elif signal.signal_type == SignalType.SELL:
@@ -77,7 +77,7 @@ class MTFAPortfolio:
                         'exit_price': current_price, 'qty': pos['qty'], 'pnl': pnl,
                         'entry_time': pos['entry_time'], 'exit_time': signal.timestamp, 'reason': signal.reason
                     })
-                    logger.info(f"[CLOSE LONG] {pos['qty']} {symbol} @ {current_price:.2f} | PnL: {pnl:.2f}")
+                    logger.info(f"[CLOSE LONG] {pos['qty']} {symbol} @ {current_price:.2f} | PnL: {pnl:.2f} | Reason: {signal.reason}")
                     del self.positions[symbol]
 
     def get_summary(self):

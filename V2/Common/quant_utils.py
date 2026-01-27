@@ -316,3 +316,10 @@ def calculate_vwap(df: pd.DataFrame) -> pd.Series:
         return vwap
     
     return df['tpv'].cumsum() / df['volume'].cumsum()
+
+def round_to_tick(price: float, tick_size: float = 0.05) -> float:
+    """Round a price to the nearest tick size (e.g., 0.05 for NSE)."""
+    if price is None: return None
+    # Convert to float to handle potential numpy types
+    price_val = float(price)
+    return round(round(price_val / tick_size) * tick_size, 2)
