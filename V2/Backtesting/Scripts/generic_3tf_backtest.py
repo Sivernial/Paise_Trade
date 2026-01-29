@@ -40,7 +40,9 @@ class MTFAPortfolio:
                         'qty': qty, 
                         'entry_price': current_price, 
                         'side': 'LONG',
-                        'entry_time': signal.timestamp
+                        'entry_time': signal.timestamp,
+                        'sl': signal.stop_loss,
+                        'tp': signal.target
                     }
                     logger.info(f"[OPEN LONG] {qty} {symbol} @ {current_price:.2f} | Reason: {signal.reason}")
             else:
@@ -64,7 +66,9 @@ class MTFAPortfolio:
                         'qty': qty, 
                         'entry_price': current_price, 
                         'side': 'SHORT',
-                        'entry_time': signal.timestamp
+                        'entry_time': signal.timestamp,
+                        'sl': signal.stop_loss,
+                        'tp': signal.target
                     }
                     logger.info(f"[OPEN SHORT] {qty} {symbol} @ {current_price:.2f} | Reason: {signal.reason}")
             else:
@@ -80,6 +84,71 @@ class MTFAPortfolio:
                     logger.info(f"[CLOSE LONG] {pos['qty']} {symbol} @ {current_price:.2f} | PnL: {pnl:.2f} | Reason: {signal.reason}")
                     del self.positions[symbol]
 
+        elif signal.signal_type == SignalType.EXIT:
+            if symbol in self.positions:
+                pos = self.positions[symbol]
+                if pos['side'] == 'LONG':
+                    pnl = (current_price - pos['entry_price']) * pos['qty']
+                    side = 'LONG'
+                else:
+                    pnl = (pos['entry_price'] - current_price) * pos['qty']
+                    side = 'SHORT'
+                
+                self.current_cash += pnl
+                self.trades.append({
+                    'symbol': symbol, 'side': side, 'entry_price': pos['entry_price'],
+                    'exit_price': current_price, 'qty': pos['qty'], 'pnl': pnl,
+                    'entry_time': pos['entry_time'], 'exit_time': signal.timestamp, 'reason': signal.reason
+                })
+                logger.info(f"[CLOSE {side}] {pos['qty']} {symbol} @ {current_price:.2f} | PnL: {pnl:.2f} | Reason: {signal.reason}")
+                del self.positions[symbol]
+
+    def check_intra_bar_exits(self, symbol: str, bar: pd.Series):
+        """Simulates broker-side SL/TP hits using the bar's High and Low."""
+        if symbol not in self.positions: return
+        
+        pos = self.positions[symbol]
+        high = bar['high']
+        low = bar['low']
+        timestamp = bar.name
+        
+        hit_sl = False
+        hit_tp = False
+        exit_price = 0
+        
+        if pos['side'] == 'LONG':
+            # Check SL First (worst case)
+            if pos['sl'] and low <= pos['sl']:
+                hit_sl = True
+                exit_price = pos['sl']
+            elif pos['tp'] and high >= pos['tp']:
+                hit_tp = True
+                exit_price = pos['tp']
+        else: # SHORT
+            if pos['sl'] and high >= pos['sl']:
+                hit_sl = True
+                exit_price = pos['sl']
+            elif pos['tp'] and low <= pos['tp']:
+                hit_tp = True
+                exit_price = pos['tp']
+        
+        if hit_sl or hit_tp:
+            reason = "INTRA-BAR STOP LOSS" if hit_sl else "INTRA-BAR PROFIT TARGET"
+            # Calculate PnL
+            if pos['side'] == 'LONG':
+                pnl = (exit_price - pos['entry_price']) * pos['qty']
+            else:
+                pnl = (pos['entry_price'] - exit_price) * pos['qty']
+            
+            self.current_cash += pnl
+            self.trades.append({
+                'symbol': symbol, 'side': pos['side'], 'entry_price': pos['entry_price'],
+                'exit_price': exit_price, 'qty': pos['qty'], 'pnl': pnl,
+                'entry_time': pos['entry_time'], 'exit_time': timestamp, 'reason': reason
+            })
+            logger.info(f"[{reason}] {pos['qty']} {symbol} @ {exit_price:.2f} | PnL: {pnl:.2f}")
+            del self.positions[symbol]
+
     def get_summary(self):
         total_pnl = sum([t['pnl'] for t in self.trades])
         win_rate = (len([t for t in self.trades if t['pnl'] > 0]) / len(self.trades) * 100) if self.trades else 0
@@ -92,7 +161,7 @@ class MTFAPortfolio:
             'roi_percent': (total_pnl / self.capital) * 100
         }
 
-def run_backtest(symbol: str, target_date: datetime, days: int = 1):
+def run_backtest(symbol: str, target_date: datetime, days: int = 1, capital: float = None):
     # Use symbol from config if it exists, otherwise use fallback logic or DEFAULT if available
     symbol_key = symbol
     if symbol not in CONFIG:
@@ -109,7 +178,12 @@ def run_backtest(symbol: str, target_date: datetime, days: int = 1):
     strategy_params = config['strategy_params'].copy()
     strategy_params['symbol'] = symbol
     strategy = Generic3TFStrategy(params=strategy_params)
-    portfolio = MTFAPortfolio(initial_capital=100000, leverage=4.0)
+    
+    # V7.1: Pull initial capital and leverage from config
+    initial_cap = capital if capital else strategy_params.get('max_capital', 100000)
+    lev = strategy_params.get('leverage', 4.0)
+    
+    portfolio = MTFAPortfolio(initial_capital=initial_cap, leverage=lev)
     
     test_start_date = target_date
     test_end_date = target_date + timedelta(days=days-1)
@@ -149,10 +223,21 @@ def run_backtest(symbol: str, target_date: datetime, days: int = 1):
             }
         }
         
+        # 0. Check Intra-bar SL/TP hits (V6 Broker Logic)
+        portfolio.check_intra_bar_exits(symbol, df_exec.iloc[i])
+        
         existing = [s for s in portfolio.positions.keys()]
         signals = strategy.generate_signals(strategy_data, current_time, capital=portfolio.current_cash, existing_positions=existing)
-        for sig in signals:
-            portfolio.execute_signal(sig, current_price)
+        
+        if signals:
+            portfolio.execute_signal(signals[0], current_price) # Changed df_exec.iloc[i] to current_price as per original logic
+            
+    # Final: Close any open positions at the end of the day (V6.2 Backtest Fix)
+    final_bar = df_exec.iloc[-1]
+    last_time = df_exec.index[-1]
+    for sym in list(portfolio.positions.keys()):
+        logger.info(f"EOD FORCE CLOSE: {sym} @ {final_bar['close']:.2f}")
+        portfolio.execute_signal(Signal(sym, SignalType.EXIT, final_bar['close'], last_time, 0, "EOD FORCE CLOSE"), final_bar['close']) # Pass final_bar['close'] as current_price
 
     summary = portfolio.get_summary()
     print("\n" + "="*50)
@@ -172,10 +257,11 @@ if __name__ == "__main__":
     parser.add_argument('--symbol', type=str, required=True, help='Symbol to backtest')
     parser.add_argument('--date', type=str, default='2026-01-20', help='Start date (YYYY-MM-DD)')
     parser.add_argument('--days', type=int, default=1, help='Number of days')
+    parser.add_argument('--capital', type=float, help='Override initial capital')
     args = parser.parse_args()
     
     try:
         target_dt = datetime.strptime(args.date.strip(), '%Y-%m-%d')
-        run_backtest(args.symbol, target_dt, args.days)
+        run_backtest(args.symbol, target_dt, args.days, args.capital)
     except Exception as e:
         logger.error(f"Error: {e}")

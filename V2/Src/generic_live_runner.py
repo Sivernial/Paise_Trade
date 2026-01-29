@@ -25,9 +25,13 @@ class GenericLiveSession:
     def __init__(self, symbol: str):
         self.symbol = symbol.upper()
         if self.symbol not in CONFIG:
-            raise ValueError(f"Symbol {self.symbol} not found in config_3tf.py")
-            
-        self.config = CONFIG[self.symbol]
+            if "DEFAULT" in CONFIG:
+                logger.warning(f"Symbol {self.symbol} not found in config. Using DEFAULT settings.")
+                self.config = CONFIG["DEFAULT"]
+            else:
+                raise ValueError(f"Symbol {self.symbol} not found in config_3tf.py and no DEFAULT set.")
+        else:
+            self.config = CONFIG[self.symbol]
         self.kite = get_kite_instance()
         self.history_10m: pd.DataFrame = None
         self.history_30m: pd.DataFrame = None
@@ -70,13 +74,16 @@ class GenericLiveSession:
         for inst in instruments:
             if inst['tradingsymbol'] == self.symbol:
                 self.instrument_token = inst['instrument_token']
+                self.tick_size = inst.get('tick_size', 0.05)
                 break
         
         if not self.instrument_token:
             logger.error(f"Token not found for {self.symbol}")
             sys.exit(1)
             
-        logger.info(f"Token: {self.instrument_token}")
+        # 3. Inject Actual Tick Size into Strategy and Local state
+        self.strategy.tick_size = self.tick_size
+        logger.info(f"Token: {self.instrument_token} | Actual Tick Size: {self.tick_size}")
 
     def run(self):
         self.setup()
@@ -97,11 +104,16 @@ class GenericLiveSession:
         
         try:
             while True:
-                time.sleep(30)
-                status = self.trader.get_status()
-                logger.info(f"LIVE {self.symbol} Monitoring | Positions: {status['positions']}")
+                time.sleep(5) # Faster heart-beat for janitor
+                self.trader.sync_and_cleanup()
+                
+                # Slower logging (every 30s approx)
+                if int(time.time()) % 30 < 5:
+                    status = self.trader.get_status()
+                    logger.info(f"LIVE {self.symbol} Monitoring | Positions: {status['positions']}")
         except KeyboardInterrupt:
             logger.info("Stopping Session...")
+            self.trader.shutdown()
             stream.stop()
 
     def on_tick(self, tick):
@@ -150,43 +162,60 @@ class GenericLiveSession:
             positions = self.trader.portfolio.get_positions()
             existing = list(positions.keys())
             
-            # --- SYNC LOGIC: Adopt existing positions on restart ---
+            # --- ADVANCED SYNC (V7.0): Adopt existing positions & Analyze Orders ---
             if self.symbol in existing and self.symbol not in self.trader.security_targets:
                 pos = positions[self.symbol]
-                logger.info(f"SYNC: Adopting existing {self.symbol} position (Qty: {pos.quantity})")
-                
-                # Re-calculate targets from config/price
-                price = self.history_10m['close'].iloc[-1]
                 side = 'LONG' if pos.quantity > 0 else 'SHORT'
+                logger.info(f"SYNC: Found existing {self.symbol} {side} (Qty: {pos.quantity}). Analysing protection...")
                 
+                # 1. Fetch current Broker State
+                broker_orders = self.kite.orders()
+                open_orders = [o for o in broker_orders if o['tradingsymbol'] == self.symbol and o['status'] in ('OPEN', 'TRIGGER PENDING')]
+                
+                # 2. Calculate what the protection *should* be
                 sl_pct = self.strategy.stop_loss_pct
                 tp_pct = self.strategy.profit_target_pct
+                curr_price = self.history_10m['close'].iloc[-1]
                 
-                sl = round_to_tick(pos.entry_price * (1 - sl_pct), self.tick_size) if side == 'LONG' else round_to_tick(pos.entry_price * (1 + sl_pct), self.tick_size)
-                tp = round_to_tick(pos.entry_price * (1 + tp_pct), self.tick_size) if side == 'LONG' else round_to_tick(pos.entry_price * (1 - tp_pct), self.tick_size)
-                be = round_to_tick(pos.entry_price * (1 + tp_pct * 0.7), self.tick_size) if side == 'LONG' else round_to_tick(pos.entry_price * (1 - tp_pct * 0.7), self.tick_size)
-                trail = round_to_tick(pos.entry_price * (1 + tp_pct * 0.9), self.tick_size) if side == 'LONG' else round_to_tick(pos.entry_price * (1 - tp_pct * 0.9), self.tick_size)
-
-                logger.info(f"SYNC: Targets for {self.symbol} - SL: {sl}, TP: {tp}, BE: {be}")
+                # Calculate ideal prices (based on entry if available, otherwise curr_price)
+                ref_price = pos.entry_price if pos.entry_price > 0 else curr_price
+                sl_ideal = round_to_tick(ref_price * (1 - sl_pct), self.tick_size) if side == 'LONG' else round_to_tick(ref_price * (1 + sl_pct), self.tick_size)
+                tp_ideal = round_to_tick(ref_price * (1 + tp_pct), self.tick_size) if side == 'LONG' else round_to_tick(ref_price * (1 - tp_pct), self.tick_size)
+                be_ideal = round_to_tick(ref_price * (1 + tp_pct * 0.7), self.tick_size) if side == 'LONG' else round_to_tick(ref_price * (1 - tp_pct * 0.7), self.tick_size)
                 
-                self.trader.security_targets[self.symbol] = {
-                    'sl': sl, 'tp': tp, 'be_trig': be, 'trail_trig': trail,
-                    'be_moved': False, 'peak': price
-                }
-                # Also place the limit order if it's new session
-                if self.symbol not in self.trader.active_limit_orders:
+                # 3. Analyze and Adopt Target Order
+                found_tp = next((o for o in open_orders if o['order_type'] == 'LIMIT' and abs(o['price'] - tp_ideal) < 0.2), None)
+                if found_tp:
+                    self.trader.active_limit_orders[self.symbol] = found_tp['order_id']
+                    logger.info(f"SYNC: Adopted existing TARGET LIMIT order {found_tp['order_id']} @ {found_tp['price']}")
+                else:
+                    logger.warning(f"SYNC: No matching Target order found. Placing new Limit @ {tp_ideal}")
                     try:
-                        if side == 'LONG':
-                            limit_id = self.trader.sell_limit.execute(self.symbol, abs(pos.quantity), tp)
-                        else:
-                            limit_id = self.trader.buy_limit.execute(self.symbol, abs(pos.quantity), tp)
+                        if side == 'LONG': limit_id = self.trader.sell_limit.execute(self.symbol, abs(pos.quantity), tp_ideal)
+                        else: limit_id = self.trader.buy_limit.execute(self.symbol, abs(pos.quantity), tp_ideal)
                         self.trader.active_limit_orders[self.symbol] = limit_id
-                        logger.info(f"SYNC: Placed missing Limit Target for existing {self.symbol} @ {tp:.2f}")
-                    except Exception as e:
-                        logger.warning(f"SYNC: Could not place limit (might already exist): {e}")
+                    except Exception as e: logger.error(f"SYNC TP placement failed: {e}")
 
-                # Update strategy internal state
-                self.strategy.trade_info[self.symbol] = {'entry_price': pos.entry_price, 'side': side}
+                # 4. Analyze and Adopt SL Order
+                found_sl = next((o for o in open_orders if o['order_type'] == 'SL-M' and abs(o['trigger_price'] - sl_ideal) < 0.2), None)
+                if found_sl:
+                    self.trader.active_sl_orders[self.symbol] = found_sl['order_id']
+                    logger.info(f"SYNC: Adopted existing STOP-LOSS order {found_sl['order_id']} @ {found_sl['trigger_price']}")
+                else:
+                    logger.warning(f"SYNC: No matching SL order found on Broker. Placing new SL-M @ {sl_ideal}")
+                    try:
+                        if side == 'LONG': sl_id = self.trader.sell_slm.execute(self.symbol, abs(pos.quantity), sl_ideal)
+                        else: sl_id = self.trader.buy_slm.execute(self.symbol, abs(pos.quantity), sl_ideal)
+                        self.trader.active_sl_orders[self.symbol] = sl_id
+                    except Exception as e: logger.error(f"SYNC SL placement failed: {e}")
+
+                # 5. Initialize Security Tracking locally
+                self.trader.security_targets[self.symbol] = {
+                    'sl': found_sl['trigger_price'] if found_sl else sl_ideal,
+                    'tp': found_tp['price'] if found_tp else tp_ideal,
+                    'be_trig': be_ideal, 'be_moved': False, 'peak': curr_price
+                }
+                self.strategy.trade_info[self.symbol] = {'entry_price': ref_price, 'side': side, 'sl_price': self.trader.security_targets[self.symbol]['sl']}
             # -------------------------------------------------------
 
             signals = self.strategy.generate_signals(data_map, datetime.now(), existing_positions=existing)

@@ -4,7 +4,7 @@ from kiteconnect import KiteConnect
 from .portfolio import LivePortfolio
 from Algorithms.base_strategy import BaseStrategy
 from Common import Signal, SignalType
-from DataStream_Engine import BuyInstant, SellInstant, BuyLimit, SellLimit
+from DataStream_Engine import BuyInstant, SellInstant, BuyLimit, SellLimit, BuySLM, SellSLM
 import logging
 import time
 
@@ -20,9 +20,12 @@ class LiveTrader:
         self.sell_action = SellInstant(kite)
         self.buy_limit = BuyLimit(kite)
         self.sell_limit = SellLimit(kite)
+        self.buy_slm = BuySLM(kite)
+        self.sell_slm = SellSLM(kite)
         self.current_prices: Dict[str, float] = {}
         self.security_targets: Dict[str, Dict[str, float]] = {} # Tracks SL/TP/BE/Trail
         self.active_limit_orders: Dict[str, str] = {} # symbol -> order_id
+        self.active_sl_orders: Dict[str, str] = {} # symbol -> order_id
         self.max_capital = self.strategy.params.get('max_capital')
     
     def on_tick(self, tick):
@@ -50,12 +53,16 @@ class LiveTrader:
         positions = self.portfolio.get_positions()
         
         for symbol, targets in list(self.security_targets.items()):
-            price = self.current_prices.get(symbol)
-            if not price: continue
-            
+            # 1. POSITION SYNC: If position is gone (Broker-side exit), nuke ALL stray orders
             if symbol not in positions:
+                logger.info(f"SECURITY: Position for {symbol} no longer found on Broker. Cleaning up ALL pending orders...")
+                self._cancel_all_open_orders(symbol)
                 self._cleanup_tracking(symbol)
                 continue
+            
+            # 2. PRICE SYNC: Only proceed to SL/TP check if we have a fresh price
+            price = self.current_prices.get(symbol)
+            if not price: continue
                 
             pos = positions[symbol]
             is_long = pos.quantity > 0
@@ -130,6 +137,13 @@ class LiveTrader:
                     limit_id = self.sell_limit.execute(signal.symbol, quantity, signal.target)
                     self.active_limit_orders[signal.symbol] = limit_id
                     logger.info(f"PRE-TARGET PLACED: Sell Limit for {signal.symbol} @ {signal.target:.2f} (Order: {limit_id})")
+                
+                # 3. Place Market Stop Loss Order (NEW V6 PROTECT)
+                if signal.stop_loss:
+                    time.sleep(0.2)
+                    sl_id = self.sell_slm.execute(signal.symbol, quantity, signal.stop_loss)
+                    self.active_sl_orders[signal.symbol] = sl_id
+                    logger.info(f"BROKER-SIDE SL PLACED: Sell SL-M for {signal.symbol} @ {signal.stop_loss:.2f} (Order: {sl_id})")
         except Exception as e:
             logger.error(f"Error in buy sequence: {e}")
     
@@ -160,7 +174,14 @@ class LiveTrader:
                     time.sleep(0.5)
                     limit_id = self.buy_limit.execute(signal.symbol, quantity, signal.target)
                     self.active_limit_orders[signal.symbol] = limit_id
-                    logger.info(f"PRE-TARGET PLACED: Buy Limit (Cover) for {signal.symbol} @ {signal.target:.2f} (Order: {limit_id})")
+                    logger.info(f"PRE-TARGET PLACED: Buy Limit for {signal.symbol} @ {signal.target:.2f} (Order: {limit_id})")
+
+                # 3. Place Market Stop Loss Order (NEW V6 PROTECT)
+                if signal.stop_loss:
+                    time.sleep(0.2)
+                    sl_id = self.buy_slm.execute(signal.symbol, quantity, signal.stop_loss)
+                    self.active_sl_orders[signal.symbol] = sl_id
+                    logger.info(f"BROKER-SIDE SL PLACED: Buy SL-M for {signal.symbol} @ {signal.stop_loss:.2f} (Order: {sl_id})")
         except Exception as e:
             logger.error(f"Error in sell sequence: {e}")
 
@@ -197,6 +218,8 @@ class LiveTrader:
         positions = self.portfolio.get_positions()
         pos = positions.get(signal.symbol)
         if not pos: 
+            logger.info(f"SMART EXIT: No position found for {signal.symbol} during exit call. Ensuring order cleanup.")
+            self._cancel_all_open_orders(signal.symbol)
             self._cleanup_tracking(signal.symbol)
             return
         
@@ -218,6 +241,7 @@ class LiveTrader:
     def _cleanup_tracking(self, symbol: str):
         if symbol in self.security_targets: del self.security_targets[symbol]
         if symbol in self.active_limit_orders: del self.active_limit_orders[symbol]
+        if symbol in self.active_sl_orders: del self.active_sl_orders[symbol]
     
     def _calculate_quantity(self, symbol: str, price: float) -> int:
         margins = self.portfolio.get_margins()
@@ -234,4 +258,30 @@ class LiveTrader:
             'current_prices': self.current_prices,
             'active_targets': self.security_targets
         }
+
+    def shutdown(self):
+        """Passive Shutdown: Analyzes and reports open broker protection without canceling."""
+        logger.info("SHUTDOWN: Commencing order analysis...")
+        try:
+            orders = self.kite.orders()
+            current_symbols = list(self.security_targets.keys())
+            if not current_symbols:
+                current_symbols = list(set(list(self.active_limit_orders.keys()) + list(self.active_sl_orders.keys())))
+
+            for symbol in current_symbols:
+                symbol_orders = [o for o in orders if o['tradingsymbol'] == symbol and o['status'] in ('OPEN', 'TRIGGER PENDING')]
+                if symbol_orders:
+                    logger.info(f"SHUTDOWN STATUS [{symbol}]: {len(symbol_orders)} orders remain ACTIVE on Broker side.")
+                    for o in symbol_orders:
+                        logger.info(f"  - {o['transaction_type']} {o['order_type']} | Qty: {o['quantity']} | Price/Trig: {o['price'] or o['trigger_price']}")
+                else:
+                    logger.info(f"SHUTDOWN STATUS [{symbol}]: No active orders found.")
+        except Exception as e:
+            logger.error(f"Error during shutdown analysis: {e}")
+        logger.info("SHUTDOWN: Process complete. Trade protection remains LIVE on Broker.")
+
+    def sync_and_cleanup(self):
+        """Standard Janitor: Runs even without ticks to ensure broker state vs local state parity."""
+        if not self.security_targets: return
+        self.check_security()
 

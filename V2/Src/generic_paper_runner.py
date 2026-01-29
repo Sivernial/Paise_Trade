@@ -47,8 +47,14 @@ class Generic3TFSession:
         params['symbol'] = self.symbol
         self.strategy = Generic3TFStrategy(params=params)
         
-        # Init Trader
-        self.trader = PaperTrader(self.strategy, initial_capital=BacktestConfig.INITIAL_CAPITAL, trade_repo=self.trade_repo)
+        # Init Trader with leverage from config
+        leverage = params.get('leverage', 1.0)
+        self.trader = PaperTrader(
+            self.strategy, 
+            initial_capital=BacktestConfig.INITIAL_CAPITAL, 
+            leverage=leverage,
+            trade_repo=self.trade_repo
+        )
         
         # Triple Aggregators
         self.agg_10m = TickAggregator(interval_minutes=10)

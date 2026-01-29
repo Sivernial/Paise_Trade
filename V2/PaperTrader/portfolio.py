@@ -7,9 +7,10 @@ logger = logging.getLogger(__name__)
 
 class PaperPortfolio:
     
-    def __init__(self, initial_capital: float = 100000):
+    def __init__(self, initial_capital: float = 100000, leverage: float = 1.0):
         self.initial_capital = initial_capital
         self.cash = initial_capital
+        self.leverage = leverage
         self.positions: Dict[str, Position] = {}
         self.orders: list = []
     
@@ -18,21 +19,46 @@ class PaperPortfolio:
         return self.positions
     
     def execute_order(self, order: Order, current_price: float, signal: Optional[Signal] = None):
-        """Execute a buy or sell order, supporting short selling."""
+        """Execute a buy or sell order, supporting short selling and leverage."""
         
         # Determine quantity delta
         is_buy = order.transaction_type == TransactionType.BUY
         qty_delta = order.quantity if is_buy else -order.quantity
         transaction_amount = order.quantity * current_price
         
-        # Cash management: Buying costs cash, Selling provides cash
-        if is_buy:
-            if transaction_amount > self.cash:
-                 logger.warning(f"Insufficient funds for BUY: need {transaction_amount}, have {self.cash}")
+        # Margin Management (V6 Leverage Support)
+        # Equity = Cash + Unrealized PnL of all positions
+        total_unrealized_pnl = sum([pos.unrealized_pnl for pos in self.positions.values()])
+        equity = self.cash + total_unrealized_pnl
+        
+        # Used Margin = Total Open Value / Leverage
+        current_open_value = sum([abs(pos.quantity) * pos.current_price for pos in self.positions.values()])
+        used_margin = current_open_value / self.leverage
+        
+        # New Margin Required for this trade
+        new_margin_required = transaction_amount / self.leverage
+        
+        # Buying Power Check
+        # We only check margin if we are INCREASING a position or opening a new one.
+        # If we are closing/reducing, we don't need margin check.
+        is_opening_or_increasing = False
+        if order.symbol not in self.positions:
+            is_opening_or_increasing = True
+        else:
+            pos = self.positions[order.symbol]
+            if (is_buy and pos.quantity >= 0) or (not is_buy and pos.quantity <= 0):
+                is_opening_or_increasing = True
+        
+        if is_opening_or_increasing:
+            if (used_margin + new_margin_required) > equity:
+                 logger.warning(f"Insufficient funds (Margin) for {order.transaction_type.value}: need {new_margin_required:.2f} margin, current used: {used_margin:.2f}, equity: {equity:.2f}")
                  return False
+        
+        # Cash management: Substracting full amount to keep PnL math simple
+        # Note: self.cash can go negative, but Total Value (Cash + Values) will be correct.
+        if is_buy:
             self.cash -= transaction_amount
         else:
-            # Short selling: Receiving cash upfront (simulated)
             self.cash += transaction_amount
 
         if order.symbol in self.positions:

@@ -10,9 +10,9 @@ logger = logging.getLogger(__name__)
 
 class PaperTrader:
     
-    def __init__(self, strategy: BaseStrategy, initial_capital: float = 100000, trade_repo = None):
+    def __init__(self, strategy: BaseStrategy, initial_capital: float = 100000, leverage: float = 1.0, trade_repo = None):
         self.strategy = strategy
-        self.portfolio = PaperPortfolio(initial_capital)
+        self.portfolio = PaperPortfolio(initial_capital, leverage=leverage)
         self.trade_repo = trade_repo
         self.current_prices: Dict[str, float] = {}
         
