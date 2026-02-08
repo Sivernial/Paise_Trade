@@ -192,19 +192,21 @@ def run_backtest(symbol: str, target_date: datetime, days: int = 1, capital: flo
     
     # Use configured lookback or default lookback if using DEFAULT
     lookbacks = config.get('lookbacks', {"10m": 110, "30m": 60, "1h": 50})
+    tree_interval = strategy_params.get('tree_interval', 10)
+    tree_interval_str = f"{tree_interval}minute"
     
-    df_10m_full = fetcher.fetch_historical_data(symbol, test_start_date - timedelta(days=10), test_end_date + timedelta(days=1), interval="10minute")
+    df_tree_full = fetcher.fetch_historical_data(symbol, test_start_date - timedelta(days=10), test_end_date + timedelta(days=1), interval=tree_interval_str)
     df_30m_full = fetcher.fetch_historical_data(symbol, test_start_date - timedelta(days=20), test_end_date + timedelta(days=1), interval="30minute")
     df_1h_full = fetcher.fetch_historical_data(symbol, test_start_date - timedelta(days=40), test_end_date + timedelta(days=1), interval="60minute")
     
-    if df_10m_full.empty or df_30m_full.empty or df_1h_full.empty:
+    if df_tree_full.empty or df_30m_full.empty or df_1h_full.empty:
         logger.error("Missing data for one or more timeframes.")
         return
 
-    for df in [df_10m_full, df_30m_full, df_1h_full]:
+    for df in [df_tree_full, df_30m_full, df_1h_full]:
         if df.index.tz: df.index = df.index.tz_localize(None)
     
-    df_exec = df_10m_full[(df_10m_full.index >= test_start_date) & (df_10m_full.index < test_end_date + timedelta(days=1))]
+    df_exec = df_tree_full[(df_tree_full.index >= test_start_date) & (df_tree_full.index < test_end_date + timedelta(days=1))]
     logger.info(f"Slicing complete. {len(df_exec)} execution bars found.")
 
     for i in range(len(df_exec)):
@@ -213,11 +215,11 @@ def run_backtest(symbol: str, target_date: datetime, days: int = 1, capital: flo
         
         full_df_30m = df_30m_full[df_30m_full.index <= current_time]
         full_df_1h = df_1h_full[df_1h_full.index < current_time]
-        full_df_10m = df_10m_full[df_10m_full.index <= current_time]
+        full_df_tree = df_tree_full[df_tree_full.index <= current_time]
         
         strategy_data = {
             symbol: {
-                "10minute": full_df_10m,
+                "tree": full_df_tree,
                 "30minute": full_df_30m,
                 "1hour": full_df_1h
             }
@@ -230,7 +232,7 @@ def run_backtest(symbol: str, target_date: datetime, days: int = 1, capital: flo
         signals = strategy.generate_signals(strategy_data, current_time, capital=portfolio.current_cash, existing_positions=existing)
         
         if signals:
-            portfolio.execute_signal(signals[0], current_price) # Changed df_exec.iloc[i] to current_price as per original logic
+            portfolio.execute_signal(signals[0], current_price)
             
     # Final: Close any open positions at the end of the day (V6.2 Backtest Fix)
     final_bar = df_exec.iloc[-1]

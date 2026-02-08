@@ -27,29 +27,14 @@ class TickAggregator:
             self._process_tick(tick)
 
     def _process_tick(self, tick: Dict):
-        symbol = tick.get('instrument_token') # Or tradingsymbol depending on tick format
-        # If using KiteTicker, tick has 'instrument_token'. We might need mapping if we want tradingsymbol.
-        # But let's assume the runner creates aggregator with knowledge of tokens or we pass tradingsymbol.
-        # Actually standard kite tick has 'instrument_token'. 
-        
-        # We probably want to map back to symbol if possible, or carry it.
-        # For now, let's use what's available. The runner receives raw ticks.
-        # If the runner enriches the tick or we use token, it's fine.
-        
+        symbol = tick.get('instrument_token')
         price = tick.get('last_price')
-        volume = tick.get('volume_traded', 0) # This is cumulative usually? 
-        # Actually last_traded_quantity might be better for per-tick, but Kite gives cumulative 'volume_traded' for the day 
-        # or 'last_traded_quantity' for height. 
-        # Diffing cumulative volume is safer.
+        volume = tick.get('volume_traded', 0)
         
         last_trade_time = tick.get('exchange_timestamp')
         if not last_trade_time:
             last_trade_time = datetime.now()
             
-        # Determine bar bucket
-        # Align to interval (e.g. 9:15, 9:30, ...)
-        # Floor time to nearest interval
-        # If interval is 15 min:
         minute_floor = (last_trade_time.minute // self.interval_minutes) * self.interval_minutes
         bar_start_time = last_trade_time.replace(minute=minute_floor, second=0, microsecond=0)
         
@@ -58,23 +43,15 @@ class TickAggregator:
         else:
             candle = self.current_candles[symbol]
             
-            # Check if this tick belongs to a new bar
             if bar_start_time > candle['timestamp']:
-                # Close previous candle
                 self._flush_candle(symbol)
-                # Start new
                 self._init_candle(symbol, bar_start_time, price, volume)
             else:
-                # Update current
                 candle['high'] = max(candle['high'], price)
                 candle['low'] = min(candle['low'], price)
                 candle['close'] = price
-                # Volume diff
-                # If tick volume is cumulative, we need to track previous tick volume?
-                # Simplify: Just aggregate ticks? No, Kite 'volume_traded' is day aggregated. 
-                # We need to track volume at start of candle.
-                # Let's simple use 0 for now as volume isn't critical for our Pair Strategy (uses price).
-                candle['volume'] = 0 
+                # Day's cumulative volume - volume at bar start
+                candle['volume'] = volume - candle['start_volume']
 
     def _init_candle(self, symbol, start_time, price, volume):
         self.current_candles[symbol] = {
@@ -83,8 +60,8 @@ class TickAggregator:
             'high': price,
             'low': price,
             'close': price,
-            'volume': 0, 
-            # 'start_volume': volume # To calc diff if needed
+            'volume': 0,
+            'start_volume': volume 
         }
 
     def _flush_candle(self, symbol):

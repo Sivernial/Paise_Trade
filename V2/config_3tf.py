@@ -74,7 +74,7 @@ CONFIG = {
             "use_atr_target": True, "atr_multiplier": 2.0,
             "use_atr_sl": True, "atr_sl_multiplier": 1.5,
             "max_ema_dist_atr": 1.0, "adx_min": 25, "max_atr_allowed": 0.03,
-            "leverage": 4.0, "max_capital": 100000, "opening_noise_mins": 5
+            "leverage": 4.0, "max_capital": 40000, "opening_noise_mins": 3
         },
         "lookbacks": {"10m": 110, "30m": 60, "1h": 50}
     },
@@ -86,7 +86,7 @@ CONFIG = {
             "use_atr_target": True, "atr_multiplier": 2.0,
             "use_atr_sl": True, "atr_sl_multiplier": 1.5,
             "max_ema_dist_atr": 1.0, "adx_min": 25, "max_atr_allowed": 0.03,
-            "leverage": 4.0, "max_capital": 100000, "opening_noise_mins": 5
+            "leverage": 4.0, "max_capital": 30000, "opening_noise_mins": 5
         },
         "lookbacks": {"10m": 110, "30m": 60, "1h": 50}
     },
@@ -103,6 +103,22 @@ CONFIG = {
         "lookbacks": {"10m": 110, "30m": 60, "1h": 50}
     },
 
+    # 8. PAYTM (Volatile Stock - Allow Midday Alignment)
+"PAYTM": {
+    "strategy_params": {
+        "sky_ema_period": 20, "forest_ema_period": 9, "tree_ema_period": 9,
+        "use_atr_target": True, "atr_multiplier": 3.0,
+        "use_atr_sl": True, "atr_sl_multiplier": 2.5,
+        "max_ema_dist_atr": 1.5, "adx_min": 25, "max_atr_allowed": 0.05,
+        "leverage": 3.0, "max_capital": 30000, 
+        "opening_noise_mins": 2,
+        "allow_alignment_entry": True,  # Enable alignment mode
+        "alignment_window_mins": 390    # Allow alignment all day (6.5 hours)
+    },
+    "lookbacks": {"10m": 110, "30m": 60, "1h": 50}
+},
+
+
     # 8. SBIN (Blue Chip Smoothing)
     "SBIN": {
         "strategy_params": {
@@ -115,14 +131,26 @@ CONFIG = {
         "lookbacks": {"10m": 110, "30m": 60, "1h": 50}
     },
 
+    # 9. OLAELEC (Momentum Disruptor)
+    "OLAELEC": {
+        "strategy_params": {
+            "sky_ema_period": 20, "forest_ema_period": 9, "tree_ema_period": 9,
+            "use_atr_target": True, "atr_multiplier": 2.5,
+            "use_atr_sl": True, "atr_sl_multiplier": 2.0,
+            "max_ema_dist_atr": 1.5, "adx_min": 30, "max_atr_allowed": 0.08,
+            "leverage": 4.0, "max_capital": 100000, "opening_noise_mins": 5
+        },
+        "lookbacks": {"10m": 110, "30m": 60, "1h": 50}
+    },
+
     # === UNIVERSAL FALLBACK ===
     "DEFAULT": {
         "strategy_params": {
             "sky_ema_period": 20, "forest_ema_period": 9, "tree_ema_period": 9,
-            "use_atr_target": True, "atr_multiplier": 2.0,
-            "use_atr_sl": True, "atr_sl_multiplier": 1.5,
+            "use_atr_target": True, "atr_multiplier": 3.0,
+            "use_atr_sl": True, "atr_sl_multiplier": 2.5,
             "max_ema_dist_atr": 1.5, "adx_min": 25, "max_atr_allowed": 0.05,
-            "leverage": 5.0, "max_capital": 40000, "opening_noise_mins": 5
+            "leverage": 3.0, "max_capital": 30000, "opening_noise_mins": 2
         },
         "lookbacks": {"10m": 110, "30m": 60, "1h": 50}
     }

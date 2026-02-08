@@ -28,8 +28,8 @@ class LiveTrader:
         self.active_sl_orders: Dict[str, str] = {} # symbol -> order_id
         self.max_capital = self.strategy.params.get('max_capital')
     
-    def on_tick(self, tick):
-        symbol = tick.get('tradingsymbol')
+    def on_tick(self, tick, symbol_override: str = None):
+        symbol = symbol_override or tick.get('tradingsymbol')
         price = tick.get('last_price', 0)
         
         if symbol and price:
@@ -245,7 +245,10 @@ class LiveTrader:
     
     def _calculate_quantity(self, symbol: str, price: float) -> int:
         margins = self.portfolio.get_margins()
-        available = margins.get('equity', {}).get('available', {}).get('live_balance', 0)
+        # Zerodha: equity -> available -> cash (sometimes 'net' depending on account type)
+        available_data = margins.get('equity', {}).get('available', {})
+        available = available_data.get('cash', available_data.get('live_balance', 0))
+        
         base_capital = min(available, self.max_capital) if self.max_capital else available
         max_allocation = base_capital * self.strategy.leverage
         quantity = int(max_allocation // price)

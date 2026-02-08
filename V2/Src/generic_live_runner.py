@@ -49,8 +49,9 @@ class GenericLiveSession:
         self.trader = LiveTrader(self.kite, self.strategy)
         self.tick_size = params.get('tick_size', 0.05)
         
-        # Triple Aggregators
-        self.agg_10m = TickAggregator(interval_minutes=10)
+        # Triple Aggregators (Adaptive Tree Timeframe)
+        self.tree_interval = params.get('tree_interval', 10)
+        self.agg_tree = TickAggregator(interval_minutes=self.tree_interval)
         self.agg_30m = TickAggregator(interval_minutes=30)
         self.agg_1h = TickAggregator(interval_minutes=60)
         
@@ -61,11 +62,12 @@ class GenericLiveSession:
         lookbacks = self.config['lookbacks']
         
         # 1. Warmup
-        self.history_10m = fetcher.fetch_historical_data(self.symbol, end_date - timedelta(days=5), end_date, interval="10minute").tail(lookbacks['10m'])
+        tree_interval_str = f"{self.tree_interval}minute"
+        self.history_tree = fetcher.fetch_historical_data(self.symbol, end_date - timedelta(days=5), end_date, interval=tree_interval_str).tail(self.config['lookbacks']['10m'])
         self.history_30m = fetcher.fetch_historical_data(self.symbol, end_date - timedelta(days=10), end_date, interval="30minute").tail(lookbacks['30m'])
         self.history_1h = fetcher.fetch_historical_data(self.symbol, end_date - timedelta(days=20), end_date, interval="60minute").tail(lookbacks['1h'])
         
-        for df in [self.history_10m, self.history_30m, self.history_1h]:
+        for df in [self.history_tree, self.history_30m, self.history_1h]:
             if df is not None and not df.empty and df.index.tz:
                 df.index = df.index.tz_localize(None)
                 
@@ -95,16 +97,16 @@ class GenericLiveSession:
         stream.subscribe([self.instrument_token])
         stream.add_callback(self.on_tick)
         
-        self.agg_10m.add_callback(self.on_10m_closed)
+        self.agg_tree.add_callback(self.on_tree_closed)
         self.agg_30m.add_callback(self.on_30m_closed)
         self.agg_1h.add_callback(self.on_1h_closed)
         
-        logger.info(f"LIVE 3TF MTFA ONLINE: Monitoring {self.symbol}")
+        logger.info(f"LIVE 3TF MTFA ONLINE: Monitoring {self.symbol} (Tree: {self.tree_interval}m)")
         stream.start()
         
         try:
             while True:
-                time.sleep(5) # Faster heart-beat for janitor
+                time.sleep(5)
                 self.trader.sync_and_cleanup()
                 
                 # Slower logging (every 30s approx)
@@ -116,27 +118,27 @@ class GenericLiveSession:
             self.trader.shutdown()
             stream.stop()
 
-    def on_tick(self, tick):
+    def on_tick(self, tick, symbol_override: str = None):
         if isinstance(tick, list):
-            self.agg_10m.on_tick(tick)
+            self.agg_tree.on_tick(tick)
             self.agg_30m.on_tick(tick)
             self.agg_1h.on_tick(tick)
             for t in tick:
                 if t.get('instrument_token') == self.instrument_token:
-                    self.trader.on_tick(t)
+                    self.trader.on_tick(t, symbol_override=self.symbol)
             self.trader.check_security()
         else:
-            self.agg_10m.on_tick([tick])
+            self.agg_tree.on_tick([tick])
             self.agg_30m.on_tick([tick])
             self.agg_1h.on_tick([tick])
             if tick.get('instrument_token') == self.instrument_token:
-                self.trader.on_tick(tick)
+                self.trader.on_tick(tick, symbol_override=self.symbol)
             self.trader.check_security()
 
-    def on_10m_closed(self, token, candle):
+    def on_tree_closed(self, token, candle):
         if token != self.instrument_token: return
         if candle.index.tz: candle.index = candle.index.tz_localize(None)
-        self.history_10m = pd.concat([self.history_10m, candle]).iloc[-self.config['lookbacks']['10m']:]
+        self.history_tree = pd.concat([self.history_tree, candle]).iloc[-self.config['lookbacks']['10m']:]
         self.run_strategy()
 
     def on_30m_closed(self, token, candle):
@@ -150,11 +152,11 @@ class GenericLiveSession:
         self.history_1h = pd.concat([self.history_1h, candle]).iloc[-self.config['lookbacks']['1h']:]
 
     def run_strategy(self):
-        if self.history_10m is None or self.history_30m is None or self.history_1h is None: return
+        if self.history_tree is None or self.history_30m is None or self.history_1h is None: return
         try:
             data_map = {
                 self.symbol: {
-                    '10minute': self.history_10m,
+                    'tree': self.history_tree,
                     '30minute': self.history_30m,
                     '1hour': self.history_1h
                 }
@@ -175,7 +177,7 @@ class GenericLiveSession:
                 # 2. Calculate what the protection *should* be
                 sl_pct = self.strategy.stop_loss_pct
                 tp_pct = self.strategy.profit_target_pct
-                curr_price = self.history_10m['close'].iloc[-1]
+                curr_price = self.history_tree['close'].iloc[-1]
                 
                 # Calculate ideal prices (based on entry if available, otherwise curr_price)
                 ref_price = pos.entry_price if pos.entry_price > 0 else curr_price
@@ -218,7 +220,11 @@ class GenericLiveSession:
                 self.strategy.trade_info[self.symbol] = {'entry_price': ref_price, 'side': side, 'sl_price': self.trader.security_targets[self.symbol]['sl']}
             # -------------------------------------------------------
 
-            signals = self.strategy.generate_signals(data_map, datetime.now(), existing_positions=existing)
+            # FETCH ACTUAL CAPITAL FOR PRECISE QUANTITY
+            margins = self.trader.portfolio.get_margins()
+            available = margins.get('equity', {}).get('available', {}).get('cash', 50000)
+            
+            signals = self.strategy.generate_signals(data_map, datetime.now(), capital=available, existing_positions=existing)
             if signals:
                 logger.info(f"LIVE SIGNAL: {signals}")
                 self.trader.process_signals(signals)

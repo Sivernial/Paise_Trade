@@ -61,7 +61,8 @@ class Generic3TFStrategy(BaseStrategy):
         symbol_data = data.get(self.symbol)
         if not symbol_data: return signals
 
-        tree_data = symbol_data.get('10minute')
+        tree_data = symbol_data.get('tree')
+        if tree_data is None: tree_data = symbol_data.get('10minute')
         if tree_data is None: tree_data = symbol_data.get('10m')
 
         forest_data = symbol_data.get('30minute')
