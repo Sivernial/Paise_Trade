@@ -14,7 +14,11 @@ CONFIG = {
             "use_atr_sl": True, "atr_sl_multiplier": 2.5,
             "trailing_type": "chandelier", "chandelier_multiplier": 3.0,
             "max_ema_dist_atr": 1.2, "adx_min": 30, "max_atr_allowed": 0.08,
-            "leverage": 4.0, "max_capital": 30000, "opening_noise_mins": 5
+            "leverage": 4.0, "max_capital": 30000, "opening_noise_mins": 5,
+            # V8 Features
+            "gap_tolerance_pct": 0.005, "use_market_depth": True,
+            "partial_exit_atr": 1.2, "partial_qty_pct": 0.5,
+            "correlated_index": "NIFTY"
         },
         "lookbacks": {"10m": 110, "30m": 60, "1h": 50}
     },
@@ -26,7 +30,8 @@ CONFIG = {
             "use_atr_target": True, "atr_multiplier": 2.0,
             "use_atr_sl": True, "atr_sl_multiplier": 1.5,
             "max_ema_dist_atr": 1.5, "adx_min": 25, "max_atr_allowed": 0.05,
-            "leverage": 4.0, "max_capital": 20000, "opening_noise_mins": 5
+            "leverage": 4.0, "max_capital": 20000, "opening_noise_mins": 5,
+            "correlated_index": "NIFTY"
         },
         "lookbacks": {"10m": 110, "30m": 60, "1h": 50}
     },
@@ -38,7 +43,8 @@ CONFIG = {
             "use_atr_target": True, "atr_multiplier": 2.5,
             "use_atr_sl": True, "atr_sl_multiplier": 2.0,
             "max_ema_dist_atr": 1.3, "adx_min": 28, "max_atr_allowed": 0.06,
-            "leverage": 4.0, "max_capital": 100000, "opening_noise_mins": 5
+            "leverage": 4.0, "max_capital": 100000, "opening_noise_mins": 5,
+            "correlated_index": "NIFTY"
         },
         "lookbacks": {"10m": 110, "30m": 60, "1h": 50}
     },
@@ -50,7 +56,8 @@ CONFIG = {
             "use_atr_target": True, "atr_multiplier": 2.2,
             "use_atr_sl": True, "atr_sl_multiplier": 1.8,
             "max_ema_dist_atr": 1.5, "adx_min": 25, "max_atr_allowed": 0.05,
-            "leverage": 4.0, "max_capital": 20000, "opening_noise_mins": 5
+            "leverage": 4.0, "max_capital": 20000, "opening_noise_mins": 5,
+            "correlated_index": "NIFTY"
         },
         "lookbacks": {"10m": 110, "30m": 60, "1h": 50}
     },
@@ -62,7 +69,8 @@ CONFIG = {
             "use_atr_target": True, "atr_multiplier": 2.0,
             "use_atr_sl": True, "atr_sl_multiplier": 1.5,
             "max_ema_dist_atr": 1.5, "adx_min": 25, "max_atr_allowed": 0.05,
-            "leverage": 4.0, "max_capital": 100000, "opening_noise_mins": 5
+            "leverage": 4.0, "max_capital": 100000, "opening_noise_mins": 5,
+            "correlated_index": "NIFTY"
         },
         "lookbacks": {"10m": 110, "30m": 60, "1h": 50}
     },
@@ -74,7 +82,8 @@ CONFIG = {
             "use_atr_target": True, "atr_multiplier": 2.0,
             "use_atr_sl": True, "atr_sl_multiplier": 1.5,
             "max_ema_dist_atr": 1.0, "adx_min": 25, "max_atr_allowed": 0.03,
-            "leverage": 4.0, "max_capital": 40000, "opening_noise_mins": 3
+            "leverage": 4.0, "max_capital": 40000, "opening_noise_mins": 3,
+            "correlated_index": "NONE"
         },
         "lookbacks": {"10m": 110, "30m": 60, "1h": 50}
     },
@@ -86,7 +95,8 @@ CONFIG = {
             "use_atr_target": True, "atr_multiplier": 2.0,
             "use_atr_sl": True, "atr_sl_multiplier": 1.5,
             "max_ema_dist_atr": 1.0, "adx_min": 25, "max_atr_allowed": 0.03,
-            "leverage": 4.0, "max_capital": 30000, "opening_noise_mins": 5
+            "leverage": 4.0, "max_capital": 30000, "opening_noise_mins": 5,
+            "correlated_index": "NONE"
         },
         "lookbacks": {"10m": 110, "30m": 60, "1h": 50}
     },
@@ -98,7 +108,8 @@ CONFIG = {
             "use_atr_target": True, "atr_multiplier": 2.5,
             "use_atr_sl": True, "atr_sl_multiplier": 2.0,
             "max_ema_dist_atr": 1.2, "adx_min": 30, "max_atr_allowed": 0.07,
-            "leverage": 4.0, "max_capital": 30000, "opening_noise_mins": 5
+            "leverage": 4.0, "max_capital": 30000, "opening_noise_mins": 5,
+            "correlated_index": "NIFTY"
         },
         "lookbacks": {"10m": 110, "30m": 60, "1h": 50}
     },
@@ -112,6 +123,10 @@ CONFIG = {
         "max_ema_dist_atr": 1.5, "adx_min": 25, "max_atr_allowed": 0.05,
         "leverage": 3.0, "max_capital": 30000, 
         "opening_noise_mins": 2,
+        # V8 Features: Aggressive Gap & Depth Checks
+        "gap_tolerance_pct": 0.005, "use_market_depth": True,
+        "partial_exit_atr": 1.2, "partial_qty_pct": 0.5,
+        "correlated_index": "BANKNIFTY",
         "allow_alignment_entry": True,  # Enable alignment mode
         "alignment_window_mins": 390    # Allow alignment all day (6.5 hours)
     },
@@ -126,7 +141,8 @@ CONFIG = {
             "use_atr_target": True, "atr_multiplier": 1.8,
             "use_atr_sl": True, "atr_sl_multiplier": 1.5,
             "max_ema_dist_atr": 1.8, "adx_min": 22, "max_atr_allowed": 0.02,
-            "leverage": 5.0, "max_capital": 30000, "opening_noise_mins": 5
+            "leverage": 5.0, "max_capital": 30000, "opening_noise_mins": 5,
+            "correlated_index": "BANKNIFTY"
         },
         "lookbacks": {"10m": 110, "30m": 60, "1h": 50}
     },
@@ -138,7 +154,8 @@ CONFIG = {
             "use_atr_target": True, "atr_multiplier": 2.5,
             "use_atr_sl": True, "atr_sl_multiplier": 2.0,
             "max_ema_dist_atr": 1.5, "adx_min": 30, "max_atr_allowed": 0.08,
-            "leverage": 4.0, "max_capital": 100000, "opening_noise_mins": 5
+            "leverage": 4.0, "max_capital": 100000, "opening_noise_mins": 5,
+            "correlated_index": "NIFTY"
         },
         "lookbacks": {"10m": 110, "30m": 60, "1h": 50}
     },
@@ -150,7 +167,11 @@ CONFIG = {
             "use_atr_target": True, "atr_multiplier": 3.0,
             "use_atr_sl": True, "atr_sl_multiplier": 2.5,
             "max_ema_dist_atr": 1.5, "adx_min": 25, "max_atr_allowed": 0.05,
-            "leverage": 3.0, "max_capital": 30000, "opening_noise_mins": 2
+            "leverage": 3.0, "max_capital": 30000, "opening_noise_mins": 2,
+            # V8 Features
+            "gap_tolerance_pct": 0.005, "use_market_depth": True,
+            "partial_exit_atr": 1.0, "partial_qty_pct": 0.5,
+            "correlated_index": "NIFTY"
         },
         "lookbacks": {"10m": 110, "30m": 60, "1h": 50}
     }

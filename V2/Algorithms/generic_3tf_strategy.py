@@ -39,22 +39,31 @@ class Generic3TFStrategy(BaseStrategy):
         self.atr_sl_multiplier = self.params.get('atr_sl_multiplier', 1.5)
         self.adx_min = self.params.get('adx_min', 25)
         self.max_atr_allowed = self.params.get('max_atr_allowed', 0.05)
-        self.partial_tp_pct = self.params.get('partial_tp_pct', 0.0) # e.g. 0.01 for 1%
-        self.partial_qty_pct = self.params.get('partial_qty_pct', 0.5) # Close 50%
-        self.trailing_timeframe = self.params.get('trailing_timeframe', 'tree') # 'tree' (10m) or 'forest' (30m)
-        self.trailing_type = self.params.get('trailing_type', 'ema') # 'ema' or 'chandelier'
+        
+        # PROFT TAKING & EXITS
+        self.partial_exit_atr = self.params.get('partial_exit_atr', 1.0) # Exit 50% at 1.0x ATR
+        self.partial_qty_pct = self.params.get('partial_qty_pct', 0.5) 
+        
+        self.trailing_timeframe = self.params.get('trailing_timeframe', 'tree')
+        self.trailing_type = self.params.get('trailing_type', 'ema') 
         self.chandelier_multiplier = self.params.get('chandelier_multiplier', 2.0)
-        self.max_ema_dist_atr = self.params.get('max_ema_dist_atr', 1.5) # Prevent overextension
+        self.max_ema_dist_atr = self.params.get('max_ema_dist_atr', 1.5)
         self.cool_down_mins = self.params.get('cool_down_mins', 30)
         
-        self.last_exit_time: Optional[datetime] = None
+        # ADVANCED FEATURES (V8)
+        self.gap_tolerance_pct = self.params.get('gap_tolerance_pct', 0.005) # 0.5% Gap
+        self.use_market_depth = self.params.get('use_market_depth', True)
+        self.correlated_index = self.params.get('correlated_index') # e.g. 'NIFTY', 'BANKNIFTY'
         
+        self.last_exit_time: Optional[datetime] = None
         self.trade_info = {}
         self.last_reset_date: Optional[datetime.date] = None
 
     def generate_signals(self, data: Dict[str, Dict[str, pd.DataFrame]], 
                         current_date: datetime, capital: float = 50000,
-                        existing_positions: List[str] = None) -> List[Signal]:
+                        existing_positions: List[str] = None,
+                        tick_data: Dict[str, Dict] = None,
+                        indices_bias: Dict[str, str] = None) -> List[Signal]:
         signals = []
         
         # 1. Extract Data
@@ -79,21 +88,29 @@ class Generic3TFStrategy(BaseStrategy):
         # 2. Indicators
         price = float(tree_data['close'].values[-1])
         
+        # Use LIVE TICK PRICE if avail (more accurate for depth/gap checks)
+        live_price = price
+        market_depth = None
+        if tick_data and self.symbol in tick_data:
+            tick = tick_data[self.symbol]
+            live_price = tick.get('last_price', price)
+            market_depth = tick.get('depth')
+        
         ema_sky = sky_data['close'].ewm(span=self.sky_ema_period, adjust=False).mean()
-        last_sky_ema = float(ema_sky.values[-1])
+        last_sky_ema = ema_sky.iloc[-1]
         sky_bias = "BULLISH" if price > last_sky_ema else "BEARISH"
 
         ema_forest = forest_data['close'].ewm(span=self.forest_ema_period, adjust=False).mean()
-        last_forest_ema = float(ema_forest.values[-1])
+        last_forest_ema = ema_forest.iloc[-1]
         forest_bias = "BULLISH" if price > last_forest_ema else "BEARISH"
 
         ema_tree = tree_data['close'].ewm(span=self.tree_ema_period, adjust=False).mean()
         vwap = calculate_vwap(tree_data)
         
-        prev_price = float(tree_data['close'].values[-2])
-        curr_ema_tree = float(ema_tree.values[-1])
-        prev_ema_tree = float(ema_tree.values[-2])
-        curr_vwap = float(vwap.values[-1])
+        prev_price = float(tree_data['close'].iloc[-2])
+        curr_ema_tree = float(ema_tree.iloc[-1])
+        prev_ema_tree = float(ema_tree.iloc[-2])
+        curr_vwap = float(vwap.iloc[-1])
         
         # ATR & ADX Calculation (Robust V6 Implementation)
         tr = pd.concat([
@@ -136,12 +153,36 @@ class Generic3TFStrategy(BaseStrategy):
             is_first_check_today = False
             if self.last_reset_date != current_date.date():
                 self.last_reset_date = current_date.date()
-                # Alignment is ONLY allowed near market open (9:15 - 9:45)
+                # Alignment is ONLY allowed near market open (9:15 - 9:45) OR if allowed all day
                 # This prevents "restart amnesia" buys midday
-                if 0 <= mins_since_open <= 30:
+                alignment_window = self.params.get('alignment_window_mins', 30)
+                if 0 <= mins_since_open <= alignment_window:
                     is_first_check_today = True
                 else:
                     is_first_check_today = False
+
+            # V8 GAP LOGIC (Optimized)
+            is_gap_play = False
+            today_str = current_date.strftime("%Y-%m-%d")
+            today_candles = tree_data[tree_data.index.astype(str).str.startswith(today_str)]
+            
+            if mins_since_open < 45 and not today_candles.empty:
+                open_price = float(today_candles.iloc[0]['open'])
+                prev_day_candles = tree_data[tree_data.index < today_candles.index[0]]
+                prev_close = float(prev_day_candles.iloc[-1]['close']) if not prev_day_candles.empty else open_price
+                
+                if prev_close > 0:
+                    gap_pct = (open_price - prev_close) / prev_close
+                    if abs(gap_pct) > self.gap_tolerance_pct: 
+                        if (gap_pct > 0 and sky_bias == "BULLISH") or (gap_pct < 0 and sky_bias == "BEARISH"):
+                            is_gap_play = True
+                            logger.info(f"GAP PLAY DETECTED: {gap_pct*100:.2f}% Gap follows Trend")
+
+            # V8.1: INDEX FILTER CHECK
+            curr_index_bias = "NEUTRAL"
+            if indices_bias and self.correlated_index in indices_bias:
+                curr_index_bias = indices_bias[self.correlated_index]
+                logger.info(f"INDEX FILTER | Symbol: {self.symbol} | Index: {self.correlated_index} | Bias: {curr_index_bias}")
 
             if sky_bias == forest_bias:
                 # Target Calculation
@@ -151,6 +192,10 @@ class Generic3TFStrategy(BaseStrategy):
                     actual_tp_pct = self.profit_target_pct
 
                 if sky_bias == "BULLISH":
+                    if curr_index_bias == "BEARISH":
+                        logger.info(f"INDEX FILTERED: Skipping BUY for {self.symbol} because {self.correlated_index} is BEARISH.")
+                        return signals
+
                     is_crossover = prev_price <= prev_ema_tree and price > curr_ema_tree
                     is_aligned = price >= curr_ema_tree and price >= curr_vwap
                     
@@ -164,16 +209,29 @@ class Generic3TFStrategy(BaseStrategy):
                         in_cool_down = True
 
                     if (is_crossover or (self.allow_alignment_entry and is_first_check_today and is_aligned)) and not in_cool_down:
-                        # V6 Filters
-                        if is_overextended:
+                        # V6 Filters (with Gap Override)
+                        if is_overextended and not is_gap_play:
                             logger.info(f"FILTERED: Price too far from EMA Support ({ema_dist:.2f} > {self.max_ema_dist_atr}x ATR) for {self.symbol}")
                             return signals
                         if adx < self.adx_min:
                             logger.info(f"FILTERED: ADX too low ({adx:.1f} < {self.adx_min}) for {self.symbol}")
                             return signals
-                        if atr_pct > self.max_atr_allowed:
+                        if atr_pct > self.max_atr_allowed and not is_gap_play:
                             logger.info(f"FILTERED: ATR% too high ({atr_pct*100:.2f}% > {self.max_atr_allowed*100:.2f}%) for {self.symbol}")
                             return signals
+                        
+                        # V8 MARKET DEPTH CHECK
+                        if self.use_market_depth and market_depth:
+                            # Check for SELLERS (Ask Qty > 0)
+                            total_ask_qty = sum([ask['quantity'] for ask in market_depth.get('sell', [])])
+                            if total_ask_qty == 0:
+                                logger.warning(f"DEPTH FILTER: Upper Circuit Limit Hit (No Sellers). Skipping BUY.")
+                                return signals
+                            
+                            # Check Imbalance
+                            total_bid_qty = sum([bid['quantity'] for bid in market_depth.get('buy', [])])
+                            if total_bid_qty > total_ask_qty * 2.0:
+                                logger.info(f"DEPTH BOOST: Strong Buying Pressure (Bid/Ask > 2.0). High confidence.")
 
                         entry_type = "CROSSOVER" if is_crossover else "ALIGNMENT (GAP)"
                         reason = f"3TF BUY: {entry_type} | Sky+Forest BULL | Tree Xover @ {price:.2f}"
@@ -185,9 +243,9 @@ class Generic3TFStrategy(BaseStrategy):
                             sl_price = round_to_tick(price * (1 - self.stop_loss_pct), self.tick_size)
                             
                         tp_price = round_to_tick(price * (1 + actual_tp_pct), self.tick_size)
-                        # Safety Net Triggers
-                        be_trigger = round_to_tick(price * (1 + actual_tp_pct * 0.7), self.tick_size)
-                        trail_trigger = round_to_tick(price * (1 + actual_tp_pct * 0.9), self.tick_size)
+                        # V8 DYNAMIC EXITS: Dance with the market
+                        partial_exit_trigger = round_to_tick(price + (self.partial_exit_atr * atr), self.tick_size)
+                        be_trigger = partial_exit_trigger 
 
                         signals.append(Signal(
                             symbol=self.symbol,
@@ -199,7 +257,7 @@ class Generic3TFStrategy(BaseStrategy):
                             stop_loss=sl_price,
                             target=tp_price,
                             breakeven_trigger=be_trigger,
-                            partial_exit_trigger=trail_trigger
+                            partial_exit_trigger=partial_exit_trigger
                         ))
                         self.trade_info[self.symbol] = {
                             'entry_price': price, 
@@ -207,9 +265,13 @@ class Generic3TFStrategy(BaseStrategy):
                             'sl_price': sl_price,
                             'extreme_price': price # For Chandelier
                         }
-                        logger.info(f"SIGNAL: {reason} | SL: {sl_price:.2f} | TP: {tp_price:.2f} | BE: {be_trigger:.2f}")
+                        logger.info(f"SIGNAL: {reason} | SL: {sl_price:.2f} | TP: {tp_price:.2f} | P-Exit: {partial_exit_trigger:.2f}")
                 
                 elif sky_bias == "BEARISH":
+                    if curr_index_bias == "BULLISH":
+                        logger.info(f"INDEX FILTERED: Skipping SHORT for {self.symbol} because {self.correlated_index} is BULLISH.")
+                        return signals
+
                     is_crossdown = prev_price >= prev_ema_tree and price < curr_ema_tree
                     is_aligned = price <= curr_ema_tree and price <= curr_vwap
                     
@@ -223,16 +285,29 @@ class Generic3TFStrategy(BaseStrategy):
                         in_cool_down = True
 
                     if (is_crossdown or (self.allow_alignment_entry and is_first_check_today and is_aligned)) and not in_cool_down:
-                        # V6 Filters
-                        if is_overextended:
+                        # V6 Filters (with Gap Override)
+                        if is_overextended and not is_gap_play:
                             logger.info(f"FILTERED: Price too far from EMA Resistance ({ema_dist:.2f} > {self.max_ema_dist_atr}x ATR) for {self.symbol}")
                             return signals
                         if adx < self.adx_min:
                             logger.info(f"FILTERED: ADX too low ({adx:.1f} < {self.adx_min}) for {self.symbol}")
                             return signals
-                        if atr_pct > self.max_atr_allowed:
+                        if atr_pct > self.max_atr_allowed and not is_gap_play:
                             logger.info(f"FILTERED: ATR% too high ({atr_pct*100:.2f}% > {self.max_atr_allowed*100:.2f}%) for {self.symbol}")
                             return signals
+
+                        # V8 MARKET DEPTH CHECK
+                        if self.use_market_depth and market_depth:
+                            # Check for BUYERS (Bid Qty > 0)
+                            total_bid_qty = sum([bid['quantity'] for bid in market_depth.get('buy', [])])
+                            if total_bid_qty == 0:
+                                logger.warning(f"DEPTH FILTER: Lower Circuit Limit Hit (No Buyers). Skipping SELL.")
+                                return signals
+                            
+                            # Check Imbalance
+                            total_ask_qty = sum([ask['quantity'] for ask in market_depth.get('sell', [])])
+                            if total_ask_qty > total_bid_qty * 2.0:
+                                logger.info(f"DEPTH BOOST: Strong Selling Pressure (Ask/Bid > 2.0). High confidence.")
 
                         entry_type = "CROSSDOWN" if is_crossdown else "ALIGNMENT (GAP)"
                         reason = f"3TF SELL (SHORT): {entry_type} | Sky+Forest BEAR | Tree Xover @ {price:.2f}"
@@ -244,9 +319,9 @@ class Generic3TFStrategy(BaseStrategy):
                             sl_price = round_to_tick(price * (1 + self.stop_loss_pct), self.tick_size)
                             
                         tp_price = round_to_tick(price * (1 - actual_tp_pct), self.tick_size)
-                        # Safety Net Triggers
-                        be_trigger = round_to_tick(price * (1 - actual_tp_pct * 0.7), self.tick_size)
-                        trail_trigger = round_to_tick(price * (1 - actual_tp_pct * 0.9), self.tick_size)
+                        # V8 DYNAMIC EXITS: Dance with the market
+                        partial_exit_trigger = round_to_tick(price - (self.partial_exit_atr * atr), self.tick_size)
+                        be_trigger = partial_exit_trigger 
 
                         signals.append(Signal(
                             symbol=self.symbol,
@@ -258,7 +333,7 @@ class Generic3TFStrategy(BaseStrategy):
                             stop_loss=sl_price,
                             target=tp_price,
                             breakeven_trigger=be_trigger,
-                            partial_exit_trigger=trail_trigger
+                            partial_exit_trigger=partial_exit_trigger
                         ))
                         self.trade_info[self.symbol] = {
                             'entry_price': price, 
@@ -266,7 +341,7 @@ class Generic3TFStrategy(BaseStrategy):
                             'sl_price': sl_price,
                             'extreme_price': price # For Chandelier
                         }
-                        logger.info(f"SIGNAL: {reason} | SL: {sl_price:.2f} | TP: {tp_price:.2f} | BE: {be_trigger:.2f}")
+                        logger.info(f"SIGNAL: {reason} | SL: {sl_price:.2f} | TP: {tp_price:.2f} | P-Exit: {partial_exit_trigger:.2f}")
 
         # 4. Exit Logic
         else:

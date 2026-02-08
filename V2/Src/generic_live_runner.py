@@ -38,6 +38,16 @@ class GenericLiveSession:
         self.history_1h: pd.DataFrame = None
         self.instrument_token = None
         
+        # INDEX TRACKING (V8.1)
+        self.index_tokens = {
+            'NIFTY': 256,
+            'BANKNIFTY': 260
+        }
+        self.index_data = {
+            'NIFTY': {'10m': None, 'agg': TickAggregator(interval_minutes=10), 'bias': 'NEUTRAL'},
+            'BANKNIFTY': {'10m': None, 'agg': TickAggregator(interval_minutes=10), 'bias': 'NEUTRAL'}
+        }
+        
         logger.info(f"Initializing LIVE 3-TIMEFRAME MTFA SESSION for {self.symbol}")
         
         # Init Strategy
@@ -67,6 +77,15 @@ class GenericLiveSession:
         self.history_30m = fetcher.fetch_historical_data(self.symbol, end_date - timedelta(days=10), end_date, interval="30minute").tail(lookbacks['30m'])
         self.history_1h = fetcher.fetch_historical_data(self.symbol, end_date - timedelta(days=20), end_date, interval="60minute").tail(lookbacks['1h'])
         
+        # Warmup Indices
+        for idx_name, idx_token in self.index_tokens.items():
+            logger.info(f"Warmup Index: {idx_name}")
+            idx_df = fetcher.fetch_historical_data(idx_name, end_date - timedelta(days=5), end_date, interval="10minute").tail(50)
+            if idx_df is not None and not idx_df.empty:
+                if idx_df.index.tz: idx_df.index = idx_df.index.tz_localize(None)
+                self.index_data[idx_name]['10m'] = idx_df
+                self._calculate_index_bias(idx_name)
+
         for df in [self.history_tree, self.history_30m, self.history_1h]:
             if df is not None and not df.empty and df.index.tz:
                 df.index = df.index.tz_localize(None)
@@ -87,6 +106,15 @@ class GenericLiveSession:
         self.strategy.tick_size = self.tick_size
         logger.info(f"Token: {self.instrument_token} | Actual Tick Size: {self.tick_size}")
 
+    def _calculate_index_bias(self, name: str):
+        df = self.index_data[name]['10m']
+        if df is None or len(df) < 20: return
+        ema = df['close'].ewm(span=20, adjust=False).mean()
+        last_price = df['close'].iloc[-1]
+        last_ema = ema.iloc[-1]
+        self.index_data[name]['bias'] = "BULLISH" if last_price > last_ema else "BEARISH"
+        logger.info(f"INDEX STATE | {name} | Price: {last_price:.2f} | EMA20: {last_ema:.2f} | Bias: {self.index_data[name]['bias']}")
+
     def run(self):
         self.setup()
         
@@ -94,14 +122,20 @@ class GenericLiveSession:
             access_token = f.read().strip()
             
         stream = DataStream(self.kite.api_key, access_token)
-        stream.subscribe([self.instrument_token])
+        # Subscribe to Symbol AND Indices
+        tokens_to_subscribe = [self.instrument_token] + list(self.index_tokens.values())
+        stream.subscribe(tokens_to_subscribe)
         stream.add_callback(self.on_tick)
         
         self.agg_tree.add_callback(self.on_tree_closed)
         self.agg_30m.add_callback(self.on_30m_closed)
         self.agg_1h.add_callback(self.on_1h_closed)
         
-        logger.info(f"LIVE 3TF MTFA ONLINE: Monitoring {self.symbol} (Tree: {self.tree_interval}m)")
+        # Index Callbacks
+        for name in self.index_tokens:
+            self.index_data[name]['agg'].add_callback(lambda t, c, n=name: self.on_index_tree_closed(n, c))
+        
+        logger.info(f"LIVE 3TF MTFA ONLINE: Monitoring {self.symbol} (Index Filtering Enabled)")
         stream.start()
         
         try:
@@ -119,21 +153,27 @@ class GenericLiveSession:
             stream.stop()
 
     def on_tick(self, tick, symbol_override: str = None):
-        if isinstance(tick, list):
-            self.agg_tree.on_tick(tick)
-            self.agg_30m.on_tick(tick)
-            self.agg_1h.on_tick(tick)
-            for t in tick:
-                if t.get('instrument_token') == self.instrument_token:
-                    self.trader.on_tick(t, symbol_override=self.symbol)
-            self.trader.check_security()
-        else:
-            self.agg_tree.on_tick([tick])
-            self.agg_30m.on_tick([tick])
-            self.agg_1h.on_tick([tick])
-            if tick.get('instrument_token') == self.instrument_token:
-                self.trader.on_tick(tick, symbol_override=self.symbol)
-            self.trader.check_security()
+        ticks = tick if isinstance(tick, list) else [tick]
+        
+        self.agg_tree.on_tick(ticks)
+        self.agg_30m.on_tick(ticks)
+        self.agg_1h.on_tick(ticks)
+        
+        # Dispatch to Index Aggregators
+        for name, token in self.index_tokens.items():
+            self.index_data[name]['agg'].on_tick(ticks)
+
+        for t in ticks:
+            if t.get('instrument_token') == self.instrument_token:
+                self.latest_tick = t
+                self.trader.on_tick(t, symbol_override=self.symbol)
+        
+        self.trader.check_security()
+
+    def on_index_tree_closed(self, name, candle):
+        if candle.index.tz: candle.index = candle.index.tz_localize(None)
+        self.index_data[name]['10m'] = pd.concat([self.index_data[name]['10m'], candle]).tail(50)
+        self._calculate_index_bias(name)
 
     def on_tree_closed(self, token, candle):
         if token != self.instrument_token: return
@@ -220,11 +260,21 @@ class GenericLiveSession:
                 self.strategy.trade_info[self.symbol] = {'entry_price': ref_price, 'side': side, 'sl_price': self.trader.security_targets[self.symbol]['sl']}
             # -------------------------------------------------------
 
-            # FETCH ACTUAL CAPITAL FOR PRECISE QUANTITY
+            # Index Bias Dictionary
+            indices_bias = {name: data['bias'] for name, data in self.index_data.items()}
+            
+            # FETCH ACTUAL CAPITAL 
             margins = self.trader.portfolio.get_margins()
             available = margins.get('equity', {}).get('available', {}).get('cash', 50000)
             
-            signals = self.strategy.generate_signals(data_map, datetime.now(), capital=available, existing_positions=existing)
+            signals = self.strategy.generate_signals(
+                data_map, 
+                datetime.now(), 
+                capital=available, 
+                existing_positions=existing,
+                tick_data={self.symbol: self.latest_tick} if hasattr(self, 'latest_tick') else None,
+                indices_bias=indices_bias
+            )
             if signals:
                 logger.info(f"LIVE SIGNAL: {signals}")
                 self.trader.process_signals(signals)

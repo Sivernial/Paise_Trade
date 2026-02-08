@@ -307,13 +307,10 @@ def calculate_vwap(df: pd.DataFrame) -> pd.Series:
     
     if isinstance(df.index, pd.DatetimeIndex):
         # Group by date for daily reset
-        df['date'] = df.index.date
-        vwap = df.groupby('date', group_keys=False).apply(lambda x: x['tpv'].cumsum() / x['volume'].cumsum(), include_groups=False)
-        # The result of apply with cumsum usually keeps the original index
-        # but let's be sure to return a clean series
-        if isinstance(vwap, pd.Series) and isinstance(vwap.index, pd.MultiIndex):
-            vwap = vwap.reset_index(level=0, drop=True)
-        return vwap
+        date_series = df.index.date
+        cum_tpv = df.groupby(date_series)['tpv'].cumsum()
+        cum_vol = df.groupby(date_series)['volume'].cumsum()
+        return cum_tpv / cum_vol
     
     return df['tpv'].cumsum() / df['volume'].cumsum()
 

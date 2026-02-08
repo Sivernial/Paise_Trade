@@ -203,11 +203,26 @@ def run_backtest(symbol: str, target_date: datetime, days: int = 1, capital: flo
         logger.error("Missing data for one or more timeframes.")
         return
 
-    for df in [df_tree_full, df_30m_full, df_1h_full]:
-        if df.index.tz: df.index = df.index.tz_localize(None)
+    # V8.1: Fetch Index Data for Filtering
+    logger.info("Fetching Index data for filtering...")
+    df_nifty_full = fetcher.fetch_historical_data("NIFTY 50", test_start_date - timedelta(days=10), test_end_date + timedelta(days=1), interval="10minute")
+    df_banknifty_full = fetcher.fetch_historical_data("NIFTY BANK", test_start_date - timedelta(days=10), test_end_date + timedelta(days=1), interval="10minute")
+    
+    for df in [df_tree_full, df_30m_full, df_1h_full, df_nifty_full, df_banknifty_full]:
+        if df is not None and not df.empty and df.index.tz: 
+            df.index = df.index.tz_localize(None)
     
     df_exec = df_tree_full[(df_tree_full.index >= test_start_date) & (df_tree_full.index < test_end_date + timedelta(days=1))]
     logger.info(f"Slicing complete. {len(df_exec)} execution bars found.")
+
+    def get_index_bias(df_idx, current_time):
+        if df_idx is None or df_idx.empty: return "NEUTRAL"
+        idx_slice = df_idx[df_idx.index <= current_time]
+        if len(idx_slice) < 20: return "NEUTRAL"
+        ema = idx_slice['close'].ewm(span=20, adjust=False).mean()
+        last_price = idx_slice['close'].iloc[-1]
+        last_ema = ema.iloc[-1]
+        return "BULLISH" if last_price > last_ema else "BEARISH"
 
     for i in range(len(df_exec)):
         current_time = df_exec.index[i]
@@ -216,6 +231,12 @@ def run_backtest(symbol: str, target_date: datetime, days: int = 1, capital: flo
         full_df_30m = df_30m_full[df_30m_full.index <= current_time]
         full_df_1h = df_1h_full[df_1h_full.index < current_time]
         full_df_tree = df_tree_full[df_tree_full.index <= current_time]
+        
+        # Calculate Index Bias
+        indices_bias = {
+            'NIFTY': get_index_bias(df_nifty_full, current_time),
+            'BANKNIFTY': get_index_bias(df_banknifty_full, current_time)
+        }
         
         strategy_data = {
             symbol: {
@@ -229,7 +250,13 @@ def run_backtest(symbol: str, target_date: datetime, days: int = 1, capital: flo
         portfolio.check_intra_bar_exits(symbol, df_exec.iloc[i])
         
         existing = [s for s in portfolio.positions.keys()]
-        signals = strategy.generate_signals(strategy_data, current_time, capital=portfolio.current_cash, existing_positions=existing)
+        signals = strategy.generate_signals(
+            strategy_data, 
+            current_time, 
+            capital=portfolio.current_cash, 
+            existing_positions=existing,
+            indices_bias=indices_bias
+        )
         
         if signals:
             portfolio.execute_signal(signals[0], current_price)
