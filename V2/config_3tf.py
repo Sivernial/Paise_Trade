@@ -30,7 +30,7 @@ CONFIG = {
             "use_atr_target": True, "atr_multiplier": 2.0,
             "use_atr_sl": True, "atr_sl_multiplier": 1.5,
             "max_ema_dist_atr": 1.5, "adx_min": 25, "max_atr_allowed": 0.05,
-            "leverage": 4.0, "max_capital": 20000, "opening_noise_mins": 5,
+            "leverage": 4.0, "max_capital": 30000, "opening_noise_mins": 5,
             "correlated_index": "NIFTY"
         },
         "lookbacks": {"10m": 110, "30m": 60, "1h": 50}
@@ -82,7 +82,7 @@ CONFIG = {
             "use_atr_target": True, "atr_multiplier": 2.0,
             "use_atr_sl": True, "atr_sl_multiplier": 1.5,
             "max_ema_dist_atr": 1.0, "adx_min": 25, "max_atr_allowed": 0.03,
-            "leverage": 4.0, "max_capital": 40000, "opening_noise_mins": 3,
+            "leverage": 2.0, "max_capital": 50000, "opening_noise_mins": 3,
             "correlated_index": "NONE"
         },
         "lookbacks": {"10m": 110, "30m": 60, "1h": 50}
@@ -95,7 +95,7 @@ CONFIG = {
             "use_atr_target": True, "atr_multiplier": 2.0,
             "use_atr_sl": True, "atr_sl_multiplier": 1.5,
             "max_ema_dist_atr": 1.0, "adx_min": 25, "max_atr_allowed": 0.03,
-            "leverage": 4.0, "max_capital": 30000, "opening_noise_mins": 5,
+            "leverage": 2.0, "max_capital": 30000, "opening_noise_mins": 5,
             "correlated_index": "NONE"
         },
         "lookbacks": {"10m": 110, "30m": 60, "1h": 50}

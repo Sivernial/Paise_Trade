@@ -198,6 +198,7 @@ def run_backtest(symbol: str, target_date: datetime, days: int = 1, capital: flo
     df_tree_full = fetcher.fetch_historical_data(symbol, test_start_date - timedelta(days=10), test_end_date + timedelta(days=1), interval=tree_interval_str)
     df_30m_full = fetcher.fetch_historical_data(symbol, test_start_date - timedelta(days=20), test_end_date + timedelta(days=1), interval="30minute")
     df_1h_full = fetcher.fetch_historical_data(symbol, test_start_date - timedelta(days=40), test_end_date + timedelta(days=1), interval="60minute")
+    df_1m_full = fetcher.fetch_historical_data(symbol, test_start_date - timedelta(days=5), test_end_date + timedelta(days=1), interval="minute")
     
     if df_tree_full.empty or df_30m_full.empty or df_1h_full.empty:
         logger.error("Missing data for one or more timeframes.")
@@ -208,7 +209,7 @@ def run_backtest(symbol: str, target_date: datetime, days: int = 1, capital: flo
     df_nifty_full = fetcher.fetch_historical_data("NIFTY 50", test_start_date - timedelta(days=10), test_end_date + timedelta(days=1), interval="10minute")
     df_banknifty_full = fetcher.fetch_historical_data("NIFTY BANK", test_start_date - timedelta(days=10), test_end_date + timedelta(days=1), interval="10minute")
     
-    for df in [df_tree_full, df_30m_full, df_1h_full, df_nifty_full, df_banknifty_full]:
+    for df in [df_tree_full, df_30m_full, df_1h_full, df_nifty_full, df_banknifty_full, df_1m_full]:
         if df is not None and not df.empty and df.index.tz: 
             df.index = df.index.tz_localize(None)
     
@@ -224,8 +225,24 @@ def run_backtest(symbol: str, target_date: datetime, days: int = 1, capital: flo
         last_ema = ema.iloc[-1]
         return "BULLISH" if last_price > last_ema else "BEARISH"
 
+    last_processed_date = None
+    current_vp = {'vah': None, 'val': None, 'poc': None}
+
     for i in range(len(df_exec)):
         current_time = df_exec.index[i]
+        current_date = current_time.date()
+        
+        # Day Change Logic: Update Volume Profile
+        if current_date != last_processed_date:
+            from Common.quant_utils import calculate_volume_profile
+            yesterday_data = df_1m_full[df_1m_full.index.date < current_date]
+            if not yesterday_data.empty:
+                last_trading_day = yesterday_data.index.date[-1]
+                last_day_df = yesterday_data[yesterday_data.index.date == last_trading_day]
+                current_vp = calculate_volume_profile(last_day_df)
+                logger.info(f"BACKTEST VP | {current_date} | Using yesterday ({last_trading_day}) | VAH: {current_vp['vah']} | VAL: {current_vp['val']}")
+            last_processed_date = current_date
+
         current_price = df_exec['close'].iloc[i]
         
         full_df_30m = df_30m_full[df_30m_full.index <= current_time]
@@ -255,7 +272,8 @@ def run_backtest(symbol: str, target_date: datetime, days: int = 1, capital: flo
             current_time, 
             capital=portfolio.current_cash, 
             existing_positions=existing,
-            indices_bias=indices_bias
+            indices_bias=indices_bias,
+            volume_profile=current_vp
         )
         
         if signals:

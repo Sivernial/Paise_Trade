@@ -33,7 +33,7 @@ class GenericLiveSession:
         else:
             self.config = CONFIG[self.symbol]
         self.kite = get_kite_instance()
-        self.history_10m: pd.DataFrame = None
+        self.history_tree: pd.DataFrame = None
         self.history_30m: pd.DataFrame = None
         self.history_1h: pd.DataFrame = None
         self.instrument_token = None
@@ -42,6 +42,10 @@ class GenericLiveSession:
         self.index_tokens = {
             'NIFTY': 256,
             'BANKNIFTY': 260
+        }
+        self.index_mapping = {
+            'NIFTY': 'NIFTY 50',
+            'BANKNIFTY': 'NIFTY BANK'
         }
         self.index_data = {
             'NIFTY': {'10m': None, 'agg': TickAggregator(interval_minutes=10), 'bias': 'NEUTRAL'},
@@ -65,6 +69,8 @@ class GenericLiveSession:
         self.agg_30m = TickAggregator(interval_minutes=30)
         self.agg_1h = TickAggregator(interval_minutes=60)
         
+        self.volume_profile = {'vah': None, 'val': None, 'poc': None}
+        
     def setup(self):
         logger.info(f"Fetching LIVE MTFA warmup data for {self.symbol}...")
         fetcher = HistoricalDataFetcher(self.kite)
@@ -77,14 +83,24 @@ class GenericLiveSession:
         self.history_30m = fetcher.fetch_historical_data(self.symbol, end_date - timedelta(days=10), end_date, interval="30minute").tail(lookbacks['30m'])
         self.history_1h = fetcher.fetch_historical_data(self.symbol, end_date - timedelta(days=20), end_date, interval="60minute").tail(lookbacks['1h'])
         
-        # Warmup Indices
-        for idx_name, idx_token in self.index_tokens.items():
-            logger.info(f"Warmup Index: {idx_name}")
-            idx_df = fetcher.fetch_historical_data(idx_name, end_date - timedelta(days=5), end_date, interval="10minute").tail(50)
-            if idx_df is not None and not idx_df.empty:
-                if idx_df.index.tz: idx_df.index = idx_df.index.tz_localize(None)
-                self.index_data[idx_name]['10m'] = idx_df
-                self._calculate_index_bias(idx_name)
+        # Warmup Indices (Only if needed by the symbol)
+        corr_index = self.config['strategy_params'].get('correlated_index', 'NONE')
+        if corr_index != 'NONE':
+            for idx_name, idx_token in self.index_tokens.items():
+                if idx_name != corr_index: continue
+                
+                fetch_name = self.index_mapping.get(idx_name, idx_name)
+                logger.info(f"Warmup Index: {fetch_name}")
+                idx_df = fetcher.fetch_historical_data(fetch_name, end_date - timedelta(days=5), end_date, interval="10minute").tail(50)
+                if idx_df is not None and not idx_df.empty:
+                    if idx_df.index.tz: idx_df.index = idx_df.index.tz_localize(None)
+                    self.index_data[idx_name]['10m'] = idx_df
+                    self._calculate_index_bias(idx_name)
+        else:
+            logger.info(f"Skipping Index Warmup for {self.symbol} (Correlated Index: NONE)")
+
+        # 1.1 Volume Profile Setup (Phase 4)
+        self._setup_volume_profile(fetcher)
 
         for df in [self.history_tree, self.history_30m, self.history_1h]:
             if df is not None and not df.empty and df.index.tz:
@@ -114,6 +130,37 @@ class GenericLiveSession:
         last_ema = ema.iloc[-1]
         self.index_data[name]['bias'] = "BULLISH" if last_price > last_ema else "BEARISH"
         logger.info(f"INDEX STATE | {name} | Price: {last_price:.2f} | EMA20: {last_ema:.2f} | Bias: {self.index_data[name]['bias']}")
+
+    def _setup_volume_profile(self, fetcher):
+        """Fetches yesterday's 1m data and calculates VAH/VAL/POC"""
+        from Common.quant_utils import calculate_volume_profile
+        logger.info(f"Calculating Volume Profile for {self.symbol}...")
+        
+        # We need historical data for the LAST trading day
+        # Fetching last 3 days to ensure we get a full day of data
+        end_date = datetime.now()
+        start_date = end_date - timedelta(days=3)
+        
+        df_1m = fetcher.fetch_historical_data(self.symbol, start_date, end_date, interval="minute")
+        if df_1m.empty:
+            logger.warning("No 1m data found for Volume Profile. Skipping.")
+            return
+
+        # Get data for the last COMPLETE trading day (before today)
+        today = datetime.now().date()
+        df_1m.index = pd.to_datetime(df_1m.index)
+        yesterday_data = df_1m[df_1m.index.date < today]
+        
+        if yesterday_data.empty:
+            logger.warning("No historical 1m data (prior to today) found for Volume Profile.")
+            return
+            
+        last_trading_day = yesterday_data.index.date[-1]
+        last_day_df = yesterday_data[yesterday_data.index.date == last_trading_day]
+        
+        self.volume_profile = calculate_volume_profile(last_day_df)
+        self.strategy.volume_profile = self.volume_profile
+        logger.info(f"VOLUME PROFILE | Day: {last_trading_day} | VAH: {self.volume_profile['vah']} | VAL: {self.volume_profile['val']} | POC: {self.volume_profile['poc']}")
 
     def run(self):
         self.setup()
@@ -273,7 +320,8 @@ class GenericLiveSession:
                 capital=available, 
                 existing_positions=existing,
                 tick_data={self.symbol: self.latest_tick} if hasattr(self, 'latest_tick') else None,
-                indices_bias=indices_bias
+                indices_bias=indices_bias,
+                volume_profile=self.volume_profile
             )
             if signals:
                 logger.info(f"LIVE SIGNAL: {signals}")

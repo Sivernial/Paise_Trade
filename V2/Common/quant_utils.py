@@ -320,3 +320,75 @@ def round_to_tick(price: float, tick_size: float = 0.05) -> float:
     # Convert to float to handle potential numpy types
     price_val = float(price)
     return round(round(price_val / tick_size) * tick_size, 2)
+
+def calculate_volume_profile(df: pd.DataFrame, bins: int = 50, va_percent: float = 0.70) -> dict:
+    """
+    Calculate Volume Profile (VAH, VAL, POC).
+    df: 1-minute data for a single day.
+    Returns: {vah, val, poc}
+    """
+    if df is None or df.empty:
+        return {'vah': None, 'val': None, 'poc': None}
+    
+    prices = df['close']
+    volumes = df['volume']
+    
+    min_p, max_p = prices.min(), prices.max()
+    if min_p == max_p:
+        return {'vah': min_p, 'val': min_p, 'poc': min_p}
+    
+    # Create Bins
+    bin_size = (max_p - min_p) / bins
+    price_bins = np.linspace(min_p, max_p, bins + 1)
+    
+    # Calculate volume per bin
+    # We use digits to assign each price to a bin
+    bin_indices = np.digitize(prices, price_bins) - 1
+    # Ensure indices are within [0, bins-1]
+    bin_indices = np.clip(bin_indices, 0, bins - 1)
+    
+    vol_profile = np.zeros(bins)
+    for i, vol in zip(bin_indices, volumes):
+        vol_profile[i] += vol
+        
+    # POC: Point of Control
+    poc_idx = np.argmax(vol_profile)
+    poc = (price_bins[poc_idx] + price_bins[poc_idx + 1]) / 2
+    
+    # Value Area (VA)
+    total_vol = vol_profile.sum()
+    va_vol_target = total_vol * va_percent
+    
+    va_indices = [poc_idx]
+    current_va_vol = vol_profile[poc_idx]
+    
+    up_idx = poc_idx + 1
+    down_idx = poc_idx - 1
+    
+    while current_va_vol < va_vol_target:
+        vol_up = vol_profile[up_idx] if up_idx < bins else 0
+        vol_down = vol_profile[down_idx] if down_idx >= 0 else 0
+        
+        if up_idx >= bins and down_idx < 0:
+            break
+            
+        if vol_up >= vol_down and up_idx < bins:
+            current_va_vol += vol_up
+            va_indices.append(up_idx)
+            up_idx += 1
+        elif down_idx >= 0:
+            current_va_vol += vol_down
+            va_indices.append(down_idx)
+            down_idx -= 1
+        else:
+            # Safety break
+            break
+            
+    val = price_bins[min(va_indices)]
+    vah = price_bins[max(va_indices) + 1]
+    
+    return {
+        'vah': round(vah, 2),
+        'val': round(val, 2),
+        'poc': round(poc, 2)
+    }

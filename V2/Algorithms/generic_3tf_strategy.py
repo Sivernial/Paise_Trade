@@ -55,6 +55,9 @@ class Generic3TFStrategy(BaseStrategy):
         self.use_market_depth = self.params.get('use_market_depth', True)
         self.correlated_index = self.params.get('correlated_index') # e.g. 'NIFTY', 'BANKNIFTY'
         
+        # Volume Profile (Value Area) - Phase 4
+        self.volume_profile = self.params.get('volume_profile', {'vah': None, 'val': None, 'poc': None})
+        
         self.last_exit_time: Optional[datetime] = None
         self.trade_info = {}
         self.last_reset_date: Optional[datetime.date] = None
@@ -63,7 +66,8 @@ class Generic3TFStrategy(BaseStrategy):
                         current_date: datetime, capital: float = 50000,
                         existing_positions: List[str] = None,
                         tick_data: Dict[str, Dict] = None,
-                        indices_bias: Dict[str, str] = None) -> List[Signal]:
+                        indices_bias: Dict[str, str] = None,
+                        volume_profile: Dict[str, float] = None) -> List[Signal]:
         signals = []
         
         # 1. Extract Data
@@ -119,7 +123,7 @@ class Generic3TFStrategy(BaseStrategy):
             (tree_data['low'] - tree_data['close'].shift(1)).abs()
         ], axis=1).max(axis=1)
         atr_series = tr.rolling(14).mean()
-        atr = float(atr_series.values[-1])
+        atr = float(atr_series.iloc[-1])
         atr_pct = atr / price
 
         # ADX Calculation
@@ -136,7 +140,7 @@ class Generic3TFStrategy(BaseStrategy):
         denom = (plus_di + minus_di).replace(0, 0.001)
         dx = 100 * (abs(plus_di - minus_di) / denom)
         adx_series = dx.rolling(14).mean().fillna(0)
-        adx = float(adx_series.values[-1])
+        adx = float(adx_series.iloc[-1])
         
         # Strategy Status Logging
         logger.info(f"3TF MONITOR | {self.symbol} | Price: {price:.2f} | Sky: {sky_bias} | Forest: {forest_bias} | ADX: {adx:.1f} | ATR%: {atr_pct*100:.2f}%")
@@ -163,6 +167,7 @@ class Generic3TFStrategy(BaseStrategy):
 
             # V8 GAP LOGIC (Optimized)
             is_gap_play = False
+            conviction = "NORMAL"
             today_str = current_date.strftime("%Y-%m-%d")
             today_candles = tree_data[tree_data.index.astype(str).str.startswith(today_str)]
             
@@ -176,7 +181,22 @@ class Generic3TFStrategy(BaseStrategy):
                     if abs(gap_pct) > self.gap_tolerance_pct: 
                         if (gap_pct > 0 and sky_bias == "BULLISH") or (gap_pct < 0 and sky_bias == "BEARISH"):
                             is_gap_play = True
-                            logger.info(f"GAP PLAY DETECTED: {gap_pct*100:.2f}% Gap follows Trend")
+                            
+                            # V8.2: VOLUME PROFILE CONVICTION
+                            vp = volume_profile or self.volume_profile
+                            vah, val = vp.get('vah'), vp.get('val')
+                            
+                            conviction = "NORMAL"
+                            if vah and val:
+                                if gap_pct > 0 and open_price > vah:
+                                    conviction = "HIGH (Value Area Breakout)"
+                                elif gap_pct < 0 and open_price < val:
+                                    conviction = "HIGH (Value Area Breakout)"
+                                elif val < open_price < vah:
+                                    conviction = "LOW (Inside Value Area)"
+                                    # Maybe reduce size or be more strict? For now just log.
+                            
+                            logger.info(f"GAP PLAY DETECTED: {gap_pct*100:.2f}% Gap follows Trend | Conviction: {conviction}")
 
             # V8.1: INDEX FILTER CHECK
             curr_index_bias = "NEUTRAL"
@@ -208,7 +228,10 @@ class Generic3TFStrategy(BaseStrategy):
                     if self.last_exit_time and (current_date - self.last_exit_time).total_seconds() < self.cool_down_mins * 60:
                         in_cool_down = True
 
-                    if (is_crossover or (self.allow_alignment_entry and is_first_check_today and is_aligned)) and not in_cool_down:
+                    # V8.3: Gap Play Trigger (Aggressive Entry for High Conviction Breakouts)
+                    is_gap_trigger = is_gap_play and conviction.startswith("HIGH")
+                
+                    if (is_crossover or is_gap_trigger or (self.allow_alignment_entry and is_first_check_today and is_aligned)) and not in_cool_down:
                         # V6 Filters (with Gap Override)
                         if is_overextended and not is_gap_play:
                             logger.info(f"FILTERED: Price too far from EMA Support ({ema_dist:.2f} > {self.max_ema_dist_atr}x ATR) for {self.symbol}")
@@ -233,8 +256,11 @@ class Generic3TFStrategy(BaseStrategy):
                             if total_bid_qty > total_ask_qty * 2.0:
                                 logger.info(f"DEPTH BOOST: Strong Buying Pressure (Bid/Ask > 2.0). High confidence.")
 
-                        entry_type = "CROSSOVER" if is_crossover else "ALIGNMENT (GAP)"
-                        reason = f"3TF BUY: {entry_type} | Sky+Forest BULL | Tree Xover @ {price:.2f}"
+                        entry_type = "CROSSOVER"
+                        if is_gap_trigger: entry_type = "GAP BREAKOUT"
+                        elif self.allow_alignment_entry and is_first_check_today: entry_type = "ALIGNMENT (OPEN)"
+                        
+                        reason = f"3TF BUY: {entry_type} | Sky+Forest BULL | Tree @ {price:.2f} | Conv: {conviction}"
                         qty = self._calculate_quantity(capital, price)
                         
                         if self.use_atr_sl:
