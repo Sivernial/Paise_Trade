@@ -1,11 +1,10 @@
 import sys
 import os
 import pandas as pd
-from datetime import datetime
+from datetime import datetime, timedelta
 import logging
 import time
-import json
-from typing import Dict, List, Tuple, Optional
+import argparse
 
 # Add parent directory to path
 sys.path.append(os.path.abspath(os.path.join(os.path.dirname(__file__), '..')))
@@ -13,223 +12,205 @@ sys.path.append(os.path.abspath(os.path.join(os.path.dirname(__file__), '..')))
 from PaperTrader import PaperTrader
 from DataStream_Engine import DataStream
 from DataStream_Engine.aggregator import TickAggregator
-from Algorithms import MultiFactorStrategy
+from Algorithms.generic_3tf_strategy import Generic3TFStrategy
 from Database import DatabaseConnection, TradeRepository 
-from reporting_engine import ReportingEngine
-from Backtesting.config import BacktestConfig, StrategyConfig
+
+from Backtesting.config import BacktestConfig
 from Backtesting.data_fetcher import HistoricalDataFetcher
-from login import get_kite_instance
+from Src.login import get_kite_instance
+from config_3tf import CONFIG
 
 logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(name)s - %(levelname)s - %(message)s')
 logger = logging.getLogger(__name__)
 
-# Portfolio Configuration (Multi-Sector Recovery)
-BASKETS = {
-    'Banking': ['SBIN', 'PNB', 'BANKBARODA', 'CANBK', 'IDFCFIRSTB'],
-    'IT': ['INFY', 'TCS', 'HCLTECH', 'TECHM', 'WIPRO'],
-    'Auto': ['MARUTI', 'M&M', 'TMPV', 'BAJAJ-AUTO', 'EICHERMOT'],
-    'Pharma': ['SUNPHARMA', 'CIPLA', 'DRREDDY', 'DIVISLAB'],
-    'Energy': ['RELIANCE', 'NTPC', 'POWERGRID', 'ONGC', 'COALINDIA']
-}
-SYMBOLS = [s for basket in BASKETS.values() for s in basket]
-INTERVAL_MIN = 5
-LOOKBACK_WINDOW = 180 # Faster adaptation
-
-class PaperRunningSession:
-    def __init__(self):
+class Generic3TFSession:
+    def __init__(self, symbol: str):
+        self.symbol = symbol.upper()
+        if self.symbol not in CONFIG:
+            raise ValueError(f"Symbol {self.symbol} not found in config_3tf.py")
+            
+        self.config = CONFIG[self.symbol]
         self.kite = get_kite_instance()
-        self.history: Dict[str, pd.DataFrame] = {}
-        self.token_map = {} 
-        self.reverse_token_map = {}
+        self.history_10m: pd.DataFrame = None
+        self.history_30m: pd.DataFrame = None
+        self.history_1h: pd.DataFrame = None
+        self.instrument_token = None
         self.db = DatabaseConnection() 
         self.trade_repo = TradeRepository(self.db) 
-        self.reporter = ReportingEngine()
+
         self.current_date_str = datetime.now().strftime('%Y-%m-%d')
         
-        logger.info(f"Initializing V3 Multi-Factor Session for: {SYMBOLS}")
+        logger.info(f"Initializing 3-TIMEFRAME MTFA SESSION for {self.symbol}")
         
-        # Init components with Tiered Parameters
-        strategy_params = {
-            'baskets': BASKETS,
-            'z_threshold': 2.0, 
-            'exit_z_threshold': 1.0, # Greedier Exit
-            'tiered_thresholds': {
-                'Banking': 2.0,
-                'IT': 2.5,
-                'Auto': 2.5,
-                'Pharma': 2.5,
-                'Energy': 2.5
-            },
-            'lookback': LOOKBACK_WINDOW,
-            'n_components': 1
-        }
-        # Try to load optimized thresholds from a previous cycle
-        optimized_config = self._load_strategy_config()
-        if optimized_config:
-            strategy_params['symbol_thresholds'] = optimized_config.get('symbol_thresholds', {})
-            logger.info("Loaded AUTOMATED Z-TUNING configuration.")
+        # Init Strategy with config params
+        params = self.config['strategy_params'].copy()
+        params['symbol'] = self.symbol
+        self.strategy = Generic3TFStrategy(params=params)
         
-        self.strategy = MultiFactorStrategy(params=strategy_params)
+        # Init Trader with leverage from config
+        leverage = params.get('leverage', 1.0)
+        self.trader = PaperTrader(
+            self.strategy, 
+            initial_capital=BacktestConfig.INITIAL_CAPITAL, 
+            leverage=leverage,
+            trade_repo=self.trade_repo
+        )
         
-        self.trader = PaperTrader(self.strategy, initial_capital=BacktestConfig.INITIAL_CAPITAL, trade_repo=self.trade_repo)
-        self.aggregator = TickAggregator(interval_minutes=INTERVAL_MIN)
+        # Triple Aggregators
+        self.agg_10m = TickAggregator(interval_minutes=10)
+        self.agg_30m = TickAggregator(interval_minutes=30)
+        self.agg_1h = TickAggregator(interval_minutes=60)
         
-    def _load_strategy_config(self):
-        """Load optimized thresholds from disk if they exist."""
-        path = "strategy_config.json"
-        if os.path.exists(path):
-            try:
-                with open(path, 'r') as f:
-                    return json.load(f)
-            except Exception as e:
-                logger.error(f"Failed to load strategy_config.json: {e}")
-        return None
-        
-    def _reload_config(self):
-        """Reload the strategy configuration dynamically."""
-        new_config = self._load_strategy_config()
-        if new_config:
-            # Update the strategy's internal params dict in-place
-            self.strategy.params['symbol_thresholds'] = new_config.get('symbol_thresholds', {})
-            logger.info("Auto-Tuning: Configuration reloaded with new Z-thresholds.")
-
     def setup(self):
-        # 1. Fetch initial history (Warmup)
-        logger.info(f"Fetching warmup data for {len(SYMBOLS)} symbols...")
+        logger.info(f"Fetching MTFA warmup data for {self.symbol}...")
         fetcher = HistoricalDataFetcher(self.kite)
         end_date = datetime.now()
-        start_date = end_date - pd.Timedelta(days=40) # 40 days to ensure 300 bars per asset
+        lookbacks = self.config['lookbacks']
         
-        for symbol in SYMBOLS:
-            df = fetcher.fetch_historical_data(symbol, start_date, end_date, interval=f"{INTERVAL_MIN}min")
-            if not df.empty:
-                if df.index.tz is not None:
-                    df.index = df.index.tz_localize(None)
-                self.history[symbol] = df.tail(LOOKBACK_WINDOW + 20)
-                logger.info(f"Loaded {len(df)} bars for {symbol}")
-            else:
-                logger.error(f"Failed to fetch history for {symbol}")
-                sys.exit(1)
-                
-        # 2. Database Maintenance (Rolling 4-month window)
-        self.db.prune_old_data(days=120)
-                
-        # 3. Get Instrument Tokens
+        # 1. Warmup 10m
+        start_10m = end_date - timedelta(days=5)
+        df_10m = fetcher.fetch_historical_data(self.symbol, start_10m, end_date, interval="10minute")
+        if not df_10m.empty:
+            if df_10m.index.tz: df_10m.index = df_10m.index.tz_localize(None)
+            self.history_10m = df_10m.tail(lookbacks['10m'])
+            logger.info(f"Loaded {len(self.history_10m)} 10m bars")
+            
+        # 2. Warmup 30m
+        start_30m = end_date - timedelta(days=10)
+        df_30m = fetcher.fetch_historical_data(self.symbol, start_30m, end_date, interval="30minute")
+        if not df_30m.empty:
+            if df_30m.index.tz: df_30m.index = df_30m.index.tz_localize(None)
+            self.history_30m = df_30m.tail(lookbacks['30m'])
+            logger.info(f"Loaded {len(self.history_30m)} 30m bars")
+            
+        # 3. Warmup 1h
+        start_1h = end_date - timedelta(days=20)
+        df_1h = fetcher.fetch_historical_data(self.symbol, start_1h, end_date, interval="60minute")
+        if not df_1h.empty:
+            if df_1h.index.tz: df_1h.index = df_1h.index.tz_localize(None)
+            self.history_1h = df_1h.tail(lookbacks['1h'])
+            logger.info(f"Loaded {len(self.history_1h)} 1h bars")
+            
+        # 4. Token Mapping
         instruments = self.kite.instruments("NSE")
         for inst in instruments:
-            if inst['tradingsymbol'] in SYMBOLS:
-                self.token_map[inst['instrument_token']] = inst['tradingsymbol']
-                self.reverse_token_map[inst['tradingsymbol']] = inst['instrument_token']
-                
-        logger.info(f"Tokens mapped for {len(self.token_map)} symbols")
+            if inst['tradingsymbol'] == self.symbol:
+                self.instrument_token = inst['instrument_token']
+                break
         
+        if not self.instrument_token:
+            logger.error(f"Token not found for {self.symbol}")
+            sys.exit(1)
+            
+        logger.info(f"Token: {self.instrument_token}")
+
     def run(self):
         self.setup()
         
-        # Use existing access token
         with open("access_token.txt", "r") as f:
             access_token = f.read().strip()
             
-        stream = DataStream(self.kite.api_key, access_token) 
-        
-        # Subscribe
-        tokens = list(self.token_map.keys())
-        stream.subscribe(tokens)
-        
-        # Connect Callbacks
+        stream = DataStream(self.kite.api_key, access_token)
+        stream.subscribe([self.instrument_token])
         stream.add_callback(self.on_tick)
-        self.aggregator.add_callback(self.on_candle_closed)
         
-        logger.info(f"Starting Paper Trading V3 for Banking Basket")
+        self.agg_10m.add_callback(self.on_10m_closed)
+        self.agg_30m.add_callback(self.on_30m_closed)
+        self.agg_1h.add_callback(self.on_1h_closed)
+        
+        logger.info(f"3TF MTFA ONLINE: Monitoring {self.symbol}")
         stream.start()
         
         try:
             while True:
                 time.sleep(30)
-                # Check for day change to generate report
-                now_str = datetime.now().strftime('%Y-%m-%d')
-                if now_str != self.current_date_str:
-                    logger.info(f"Day change detected. Generating report for {self.current_date_str}")
-                    self.reporter.generate_daily_report(self.current_date_str)
-                    self._reload_config() # Reload optimized params for the new day
-                    self.current_date_str = now_str
-
                 status = self.trader.get_status()
-                logger.info(f"PnL: {status['total_value'] - BacktestConfig.INITIAL_CAPITAL:.2f} | Open Pos: {len(status['portfolio']['positions'])}")
+                pnl = status['total_value'] - BacktestConfig.INITIAL_CAPITAL
+                logger.info(f"{self.symbol} PnL: ₹{pnl:.2f} | Pos: {len(status['portfolio']['positions'])}")
         except KeyboardInterrupt:
-            logger.info("Stopping... Generating final report.")
-            self.reporter.generate_daily_report(self.current_date_str)
+            logger.info(f"Stopping {self.symbol} MTFA Session...")
             stream.stop()
 
     def on_tick(self, tick):
         if isinstance(tick, list):
-            self.aggregator.on_tick(tick)
+            self.agg_10m.on_tick(tick)
+            self.agg_30m.on_tick(tick)
+            self.agg_1h.on_tick(tick)
             for t in tick:
-                token = t.get('instrument_token')
-                price = t.get('last_price')
-                symbol = self.token_map.get(token)
-                if symbol:
-                    self.trader.current_prices[symbol] = price
+                if t.get('instrument_token') == self.instrument_token:
+                    self.trader.current_prices[self.symbol] = t.get('last_price')
+            self.trader.check_security()
         else:
-            self.aggregator.on_tick([tick])
-            token = tick.get('instrument_token')
-            if token in self.token_map:
-                self.trader.current_prices[self.token_map[token]] = tick.get('last_price')
+            self.agg_10m.on_tick([tick])
+            self.agg_30m.on_tick([tick])
+            self.agg_1h.on_tick([tick])
+            if tick.get('instrument_token') == self.instrument_token:
+                self.trader.current_prices[self.symbol] = tick.get('last_price')
+            self.trader.check_security()
 
-    def on_candle_closed(self, token_or_symbol, candle):
-        symbol = self.token_map.get(token_or_symbol)
-        if not symbol: return
-            
-        if candle.index.tz is not None:
-            candle.index = candle.index.tz_localize(None)
-            
-        logger.debug(f"New Candle {symbol}: {candle.iloc[-1]['close']}")
+    def on_10m_closed(self, token, candle):
+        if token != self.instrument_token: return
+        if candle.index.tz: candle.index = candle.index.tz_localize(None)
         
-        # Update History
-        if symbol not in self.history:
-            self.history[symbol] = candle
+        if self.history_10m is None: self.history_10m = candle
         else:
-            self.history[symbol] = pd.concat([self.history[symbol], candle])
-            # De-duplicate: Keep the most recent data for overlapping timestamps
-            self.history[symbol] = self.history[symbol][~self.history[symbol].index.duplicated(keep='last')]
+            self.history_10m = pd.concat([self.history_10m, candle])
+            self.history_10m = self.history_10m[~self.history_10m.index.duplicated(keep='last')]
         
-        # Trim
-        if len(self.history[symbol]) > LOOKBACK_WINDOW * 2:
-             self.history[symbol] = self.history[symbol].iloc[-LOOKBACK_WINDOW-20:]
-             
+        self.history_10m = self.history_10m.iloc[-self.config['lookbacks']['10m']:]
         self.run_strategy()
 
+    def on_30m_closed(self, token, candle):
+        if token != self.instrument_token: return
+        if candle.index.tz: candle.index = candle.index.tz_localize(None)
+        
+        if self.history_30m is None: self.history_30m = candle
+        else:
+            self.history_30m = pd.concat([self.history_30m, candle])
+            self.history_30m = self.history_30m[~self.history_30m.index.duplicated(keep='last')]
+        
+        self.history_30m = self.history_30m.iloc[-self.config['lookbacks']['30m']:]
+        logger.info(f"{self.symbol} 30m Candle Closed: {candle['close'].iloc[-1]:.2f}")
+
+    def on_1h_closed(self, token, candle):
+        if token != self.instrument_token: return
+        if candle.index.tz: candle.index = candle.index.tz_localize(None)
+        
+        if self.history_1h is None: self.history_1h = candle
+        else:
+            self.history_1h = pd.concat([self.history_1h, candle])
+            self.history_1h = self.history_1h[~self.history_1h.index.duplicated(keep='last')]
+            
+        self.history_1h = self.history_1h.iloc[-self.config['lookbacks']['1h']:]
+        logger.info(f"{self.symbol} 1h Candle Closed: {candle['close'].iloc[-1]:.2f}")
+
     def run_strategy(self):
+        if self.history_10m is None or self.history_30m is None or self.history_1h is None: return
         try:
-            # Ensure we have data for all symbols
-            if len(self.history) < len(SYMBOLS): return
-            
-            data_map = {s: self.history[s] for s in SYMBOLS}
-            current_equity = self.trader.get_status()['total_value']
-            
-            # Identify existing positions for the strategy
-            existing_pos = list(self.trader.portfolio.get_positions().keys())
+            data_map = {
+                self.symbol: {
+                    '10minute': self.history_10m,
+                    '30minute': self.history_30m,
+                    '1hour': self.history_1h
+                }
+            }
+            equity = self.trader.get_status()['total_value']
+            existing = list(self.trader.portfolio.get_positions().keys())
             
             signals = self.strategy.generate_signals(
-                data_map, 
-                datetime.now(), 
-                capital=current_equity,
-                existing_positions=existing_pos
+                data_map, datetime.now(), capital=equity, existing_positions=existing
             )
             
             if signals:
-                logger.info(f"Generated {len(signals)} signals: {signals}")
+                logger.info(f"{self.symbol} SIGNAL Triggered: {signals}")
                 self.trader.process_signals(signals)
-            
-            # --- PERFORMANCE HARVESTING ---
-            metrics = self.strategy.last_metrics
-            if metrics:
-                self.trade_repo.log_performance_metrics(metrics)
-                # logger.debug(f"Logged performance metrics for {len(metrics)} symbols")
-                
         except Exception as e:
-            logger.error(f"Strategy Error: {e}")
+            logger.error(f"Strategy Error ({self.symbol}): {e}", exc_info=True)
 
 if __name__ == "__main__":
-    session = PaperRunningSession()
+    parser = argparse.ArgumentParser(description='Generic 3TF Paper Runner')
+    parser.add_argument('--symbol', type=str, required=True, help='Trading symbol (e.g. ITC, INDIGO, SILVERBEES)')
+    args = parser.parse_args()
+    
+    session = Generic3TFSession(args.symbol)
     session.run()

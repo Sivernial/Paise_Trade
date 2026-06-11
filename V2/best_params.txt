@@ -1,1 +1,0 @@
-{'z_score_threshold': 2.0, 'lookback_window': 15, 'stop_loss_z': 5.0, 'take_profit_z': 0.0}
