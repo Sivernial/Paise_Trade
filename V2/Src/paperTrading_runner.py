@@ -39,6 +39,7 @@ class Generic3TFSession:
         self.trade_repo = TradeRepository(self.db) 
 
         self.current_date_str = datetime.now().strftime('%Y-%m-%d')
+        self.latest_tick = None
         
         logger.info(f"Initializing 3-TIMEFRAME MTFA SESSION for {self.symbol}")
         
@@ -132,21 +133,18 @@ class Generic3TFSession:
             stream.stop()
 
     def on_tick(self, tick):
-        if isinstance(tick, list):
-            self.agg_10m.on_tick(tick)
-            self.agg_30m.on_tick(tick)
-            self.agg_1h.on_tick(tick)
-            for t in tick:
-                if t.get('instrument_token') == self.instrument_token:
-                    self.trader.current_prices[self.symbol] = t.get('last_price')
-            self.trader.check_security()
-        else:
-            self.agg_10m.on_tick([tick])
-            self.agg_30m.on_tick([tick])
-            self.agg_1h.on_tick([tick])
-            if tick.get('instrument_token') == self.instrument_token:
-                self.trader.current_prices[self.symbol] = tick.get('last_price')
-            self.trader.check_security()
+        ticks = tick if isinstance(tick, list) else [tick]
+        
+        self.agg_10m.on_tick(ticks)
+        self.agg_30m.on_tick(ticks)
+        self.agg_1h.on_tick(ticks)
+        
+        for t in ticks:
+            if t.get('instrument_token') == self.instrument_token:
+                self.latest_tick = t
+                self.trader.current_prices[self.symbol] = t.get('last_price')
+        
+        self.trader.check_security()
 
     def on_10m_closed(self, token, candle):
         if token != self.instrument_token: return
@@ -198,7 +196,11 @@ class Generic3TFSession:
             existing = list(self.trader.portfolio.get_positions().keys())
             
             signals = self.strategy.generate_signals(
-                data_map, datetime.now(), capital=equity, existing_positions=existing
+                data_map, 
+                datetime.now(), 
+                capital=equity, 
+                existing_positions=existing,
+                tick_data={self.symbol: self.latest_tick} if self.latest_tick else None
             )
             
             if signals:

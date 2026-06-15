@@ -92,12 +92,11 @@ class Generic3TFStrategy(BaseStrategy):
         # 2. Indicators
         price = float(tree_data['close'].values[-1])
         
-        # Use LIVE TICK PRICE if avail (more accurate for depth/gap checks)
-        live_price = price
+        # Use LIVE TICK PRICE if avail (more accurate for depth/gap checks, entry/exit levels, and stops)
         market_depth = None
         if tick_data and self.symbol in tick_data:
             tick = tick_data[self.symbol]
-            live_price = tick.get('last_price', price)
+            price = tick.get('last_price', price)
             market_depth = tick.get('depth')
         
         ema_sky = sky_data['close'].ewm(span=self.sky_ema_period, adjust=False).mean()
