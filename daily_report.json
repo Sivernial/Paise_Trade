@@ -1,0 +1,71 @@
+{
+  "report_date": "2026-06-15",
+  "target_trading_date": "2026-06-16",
+  "market_bias": "BULLISH",
+  "macro_environment": {
+    "theme": "Risk-On",
+    "catalyst": "US-Iran peace deal, Crude fell >4%",
+    "fii_dii_flow": "DIIs heavily buying (+5,341 Cr), FIIs selling (-1,082 Cr)"
+  },
+  "sectors": {
+    "strongest": ["Realty", "Aviation", "Paints", "Auto", "Banking"],
+    "weakest": ["Oil & Gas", "Energy"]
+  },
+  "top_trades": [
+    {
+      "symbol": "INDIGO",
+      "direction": "LONG",
+      "confidence_score": 92,
+      "entry_zone": "Retracement to VWAP or 15m 20-EMA",
+      "stop_loss_pct": 1.5,
+      "target_1_pct": 2.0,
+      "target_2_pct": 3.5,
+      "reasoning": "Aviation fuel drop catalyst. High delivery expansion."
+    },
+    {
+      "symbol": "DLF",
+      "direction": "LONG",
+      "confidence_score": 88,
+      "entry_zone": "Early morning consolidation or first 5m pullback to 9-EMA",
+      "stop_loss_pct": 1.5,
+      "target_1_pct": 1.5,
+      "target_2_pct": 2.5,
+      "reasoning": "Realty top sector, massive momentum."
+    },
+    {
+      "symbol": "ASIANPAINT",
+      "direction": "LONG",
+      "confidence_score": 85,
+      "entry_zone": "Breakout above today's high with volume",
+      "stop_loss_pct": 1.0,
+      "target_1_pct": 1.5,
+      "target_2_pct": 3.0,
+      "reasoning": "Crude beneficiary, technical compression breakout."
+    },
+    {
+      "symbol": "ONGC",
+      "direction": "SHORT",
+      "confidence_score": 82,
+      "entry_zone": "Morning bounce to 15m 20-EMA or VWAP rejection",
+      "stop_loss_pct": 1.2,
+      "target_1_pct": 1.5,
+      "target_2_pct": 2.5,
+      "reasoning": "Crude drop hits realizations. High relative weakness."
+    },
+    {
+      "symbol": "ICICIBANK",
+      "direction": "LONG",
+      "confidence_score": 80,
+      "entry_zone": "Market open or minor dip to prev day close",
+      "stop_loss_pct": 0.8,
+      "target_1_pct": 1.0,
+      "target_2_pct": 1.8,
+      "reasoning": "Massive DII buying into banks. High liquidity."
+    }
+  ],
+  "algo_risk_instructions": {
+    "gap_up_logic": "Wait for the first 15-minute 'Tree' timeframe candle to close before confirming 'Forest' trend. Do NOT execute market orders at the open bell.",
+    "mean_reversion_threshold_pct": 2.0,
+    "short_covering_warning": "For ONGC, watch for immediate short covering at the open; wait for the first lower-high structure on the 5m chart before deploying short."
+  }
+}
