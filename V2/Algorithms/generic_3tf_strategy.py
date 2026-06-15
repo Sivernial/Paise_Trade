@@ -25,6 +25,7 @@ class Generic3TFStrategy(BaseStrategy):
         self.forest_ema_period = self.params.get('forest_ema_period', 9)
         self.tree_ema_period = self.params.get('tree_ema_period', 9)
         self.leverage = self.params.get('leverage', 4.0)
+        self.forced_direction = self.params.get('DIRECTION')
         
         self.profit_target_pct = self.params.get('profit_target', 0.015)
         self.stop_loss_pct = self.params.get('stop_loss', 0.005)
@@ -42,12 +43,14 @@ class Generic3TFStrategy(BaseStrategy):
         
         # PROFT TAKING & EXITS
         self.partial_exit_atr = self.params.get('partial_exit_atr', 1.0) # Exit 50% at 1.0x ATR
+        self.partial_exit_pct = self.params.get('partial_exit_pct') # V8 Explicit target
         self.partial_qty_pct = self.params.get('partial_qty_pct', 0.5) 
         
         self.trailing_timeframe = self.params.get('trailing_timeframe', 'tree')
         self.trailing_type = self.params.get('trailing_type', 'ema') 
         self.chandelier_multiplier = self.params.get('chandelier_multiplier', 2.0)
         self.max_ema_dist_atr = self.params.get('max_ema_dist_atr', 1.5)
+        self.mean_reversion_pct = self.params.get('mean_reversion_pct')
         self.cool_down_mins = self.params.get('cool_down_mins', 30)
         
         # ADVANCED FEATURES (V8)
@@ -211,6 +214,10 @@ class Generic3TFStrategy(BaseStrategy):
                     actual_tp_pct = self.profit_target_pct
 
                 if sky_bias == "BULLISH":
+                    if self.forced_direction and self.forced_direction != "LONG":
+                        logger.info(f"DIRECTION FILTERED: Skipping BUY for {self.symbol} because forced direction is {self.forced_direction}.")
+                        return signals
+
                     if curr_index_bias == "BEARISH":
                         logger.info(f"INDEX FILTERED: Skipping BUY for {self.symbol} because {self.correlated_index} is BEARISH.")
                         return signals
@@ -221,6 +228,8 @@ class Generic3TFStrategy(BaseStrategy):
                     # V6.4: Overextension Filter (Distance from EMA)
                     ema_dist = price - curr_ema_tree
                     is_overextended = ema_dist > (self.max_ema_dist_atr * atr)
+                    if self.mean_reversion_pct and (ema_dist / price) > self.mean_reversion_pct:
+                        is_overextended = True
                     
                     # Cool-down check
                     in_cool_down = False
@@ -269,7 +278,10 @@ class Generic3TFStrategy(BaseStrategy):
                             
                         tp_price = round_to_tick(price * (1 + actual_tp_pct), self.tick_size)
                         # V8 DYNAMIC EXITS: Dance with the market
-                        partial_exit_trigger = round_to_tick(price + (self.partial_exit_atr * atr), self.tick_size)
+                        if self.partial_exit_pct:
+                            partial_exit_trigger = round_to_tick(price * (1 + self.partial_exit_pct), self.tick_size)
+                        else:
+                            partial_exit_trigger = round_to_tick(price + (self.partial_exit_atr * atr), self.tick_size)
                         be_trigger = partial_exit_trigger 
 
                         signals.append(Signal(
@@ -293,6 +305,10 @@ class Generic3TFStrategy(BaseStrategy):
                         logger.info(f"SIGNAL: {reason} | SL: {sl_price:.2f} | TP: {tp_price:.2f} | P-Exit: {partial_exit_trigger:.2f}")
                 
                 elif sky_bias == "BEARISH":
+                    if self.forced_direction and self.forced_direction != "SHORT":
+                        logger.info(f"DIRECTION FILTERED: Skipping SELL for {self.symbol} because forced direction is {self.forced_direction}.")
+                        return signals
+
                     if curr_index_bias == "BULLISH":
                         logger.info(f"INDEX FILTERED: Skipping SHORT for {self.symbol} because {self.correlated_index} is BULLISH.")
                         return signals
@@ -303,6 +319,8 @@ class Generic3TFStrategy(BaseStrategy):
                     # V6.4: Overextension Filter (Distance from EMA)
                     ema_dist = curr_ema_tree - price
                     is_overextended = ema_dist > (self.max_ema_dist_atr * atr)
+                    if self.mean_reversion_pct and (ema_dist / price) > self.mean_reversion_pct:
+                        is_overextended = True
                     
                     # Cool-down check
                     in_cool_down = False
@@ -345,7 +363,10 @@ class Generic3TFStrategy(BaseStrategy):
                             
                         tp_price = round_to_tick(price * (1 - actual_tp_pct), self.tick_size)
                         # V8 DYNAMIC EXITS: Dance with the market
-                        partial_exit_trigger = round_to_tick(price - (self.partial_exit_atr * atr), self.tick_size)
+                        if self.partial_exit_pct:
+                            partial_exit_trigger = round_to_tick(price * (1 - self.partial_exit_pct), self.tick_size)
+                        else:
+                            partial_exit_trigger = round_to_tick(price - (self.partial_exit_atr * atr), self.tick_size)
                         be_trigger = partial_exit_trigger 
 
                         signals.append(Signal(

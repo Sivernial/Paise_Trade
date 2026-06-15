@@ -1,51 +1,3 @@
-import asyncio
-import os
-import pydantic
-from typing import List, Optional
-from dotenv import load_dotenv
-from google.antigravity import Agent, LocalAgentConfig
-from google.antigravity.types import TemplatedSystemInstructions
-
-# Load environment variables (specifically GEMINI_API_KEY) from the root .env file
-load_dotenv(dotenv_path="../.env")
-
-# ==============================================================================
-# SCHEMAS FOR STRUCTURED OUTPUT
-# ==============================================================================
-
-class TradeCandidate(pydantic.BaseModel):
-    symbol: str
-    direction: str
-    confidence_score: int
-    entry_zone: str
-    stop_loss_pct: float
-    target_1_pct: float
-    target_2_pct: float
-    reasoning: str
-
-class MacroEnvironment(pydantic.BaseModel):
-    theme: str
-    catalyst: str
-    fii_dii_flow: str
-
-class Sectors(pydantic.BaseModel):
-    strongest: List[str]
-    weakest: List[str]
-
-class AlgoRiskInstructions(pydantic.BaseModel):
-    gap_up_logic: str
-    mean_reversion_threshold_pct: float
-    short_covering_warning: str
-
-class DailyMarketReport(pydantic.BaseModel):
-    report_date: str
-    target_trading_date: str
-    market_bias: str
-    macro_environment: MacroEnvironment
-    sectors: Sectors
-    top_trades: List[TradeCandidate]
-    algo_risk_instructions: AlgoRiskInstructions
-
 # ==============================================================================
 
 MACRO_STRATEGIST_PROMPT = """
@@ -110,16 +62,6 @@ IMPORTANT SYSTEM MANDATE: Because this system is fully automated, you MUST outpu
 - If sufficient data is unavailable for a candidate, reject it.
 """
 
-def get_market_analysis_agent() -> Agent:
-    """Creates the Macro Strategist Agent designed to output the daily_report.json"""
-    si = TemplatedSystemInstructions(identity=MACRO_STRATEGIST_PROMPT)
-    config = LocalAgentConfig(
-        system_instructions=si,
-        response_schema=DailyMarketReport,
-        # In a real environment, you might also attach a 'search_web' tool here
-    )
-    return Agent(config)
-
 # ==============================================================================
 # AGENT 2: THE EXECUTION ENGINEER (Code Development)
 # ==============================================================================
@@ -160,43 +102,3 @@ You must process the incoming JSON report by strictly following these phases:
 - **Detailed Audit Trail:** Always output a clear, structured summary explaining exactly which lines of code were changed, the risk parameters applied, and why those specific adjustments were made based on the JSON payload.
 """
 
-def get_code_development_agent() -> Agent:
-    """Creates the Execution Engineer Agent designed to rewrite config files."""
-    si = TemplatedSystemInstructions(identity=EXECUTION_ENGINEER_PROMPT)
-    config = LocalAgentConfig(
-        system_instructions=si,
-        # This agent would ideally be equipped with a 'write_file' or 'edit_file' tool.
-    )
-    return Agent(config)
-
-# ==============================================================================
-# EXAMPLE WORKFLOW (How to run them together)
-# ==============================================================================
-
-async def run_daily_workflow():
-    print("🚀 Starting Daily Autonomous Workflow...")
-    
-    # 1. Run the Analyst
-    print("📊 Analyst Agent is gathering data...")
-    async with get_market_analysis_agent() as analyst:
-        prompt = "Fetch the latest market data for today and generate the Top 5 trades for tomorrow's 3TF strategy execution."
-        response = await analyst.chat(prompt)
-        report_data = await response.structured_output()
-        print(f"✅ Analyst completed report for target date: {report_data['target_trading_date']}")
-    
-    # 2. Run the Engineer (Passing the output of Agent 1 to Agent 2)
-    print("⚙️ Execution Agent is updating configurations...")
-    async with get_code_development_agent() as engineer:
-        prompt = f"""
-        Here is the daily market report JSON:
-        {report_data}
-        
-        Please apply these exact top 5 trades and risk instructions to `V2/config_3tf.py`.
-        """
-        response = await engineer.chat(prompt)
-        print("✅ Execution Agent applied changes:")
-        print(await response.text())
-
-if __name__ == "__main__":
-    asyncio.run(run_daily_workflow())
-    # print("Run this file as a module or uncomment the asyncio.run() to test the workflow.")
