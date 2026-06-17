@@ -179,8 +179,10 @@ class GenericLiveSession:
         self.agg_1h.add_callback(self.on_1h_closed)
         
         # Index Callbacks
-        for name in self.index_tokens:
-            self.index_data[name]['agg'].add_callback(lambda t, c, n=name: self.on_index_tree_closed(n, c))
+        for name, token in self.index_tokens.items():
+            self.index_data[name]['agg'].add_callback(
+                lambda t, c, n=name, tok=token: self.on_index_tree_closed(n, c) if t == tok else None
+            )
         
         logger.info(f"LIVE 3TF MTFA ONLINE: Monitoring {self.symbol} (Index Filtering Enabled)")
         stream.start()

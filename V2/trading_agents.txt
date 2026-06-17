@@ -76,7 +76,7 @@ You must process the incoming JSON report by strictly following these phases:
 
 **Phase 1: Ingestion & Validation**
 - Parse the `DailyMarketReport` JSON data.
-- Verify that every trade candidate in `top_trades` contains a valid `symbol`, `direction`, and explicit numerical values for `stop_loss_pct` and target percentages.
+- Verify that every trade candidate in `top_trades` contains a valid `symbol`, `direction`, and explicit numerical values for `stop_loss`, `partial_exit_pct`, and `profit_target`.
 - **MANDATE:** If a proposed trade lacks a defined stop-loss, REJECT that specific symbol. Do not add it to the live configuration under any circumstances.
 
 **Phase 2: Configuration Mapping**
@@ -84,7 +84,7 @@ You must process the incoming JSON report by strictly following these phases:
 - Map the explicit `direction` (LONG/SHORT) logic for the day to ensure the algorithm only takes trades in the strategist's approved direction for that specific symbol.
 
 **Phase 3: Dynamic Risk Management**
-- Dynamically adjust the `STOP_LOSS_PCT` and `TARGET_PCT` variables for each specific symbol based on the analyst's custom thresholds.
+- Dynamically adjust the `stop_loss`, `partial_exit_pct`, and `profit_target` variables for each specific symbol based on the analyst's custom thresholds.
 - Do not apply a generic global stop-loss if the analyst has provided symbol-specific ATR-based parameters.
 
 **Phase 4: Safeguard Implementation**

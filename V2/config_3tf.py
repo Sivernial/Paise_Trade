@@ -84,7 +84,7 @@ ADVANCED FEATURES:
 ================================================================================
 """
 
-SYMBOLS = ["INDIGO", "DLF", "ASIANPAINT", "ONGC", "ICICIBANK"]
+SYMBOLS = ["INDIGO", "ASIANPAINT", "INFY", "ONGC", "MUTHOOTFIN"]
 
 CONFIG = {
     # -------------------------------------------------------------------------
@@ -97,10 +97,10 @@ CONFIG = {
             "tree_ema_period": 9,
             "DIRECTION": "LONG",
             "use_atr_target": False,
-            "profit_target": 0.035,        # Target 2
-            "partial_exit_pct": 0.02,      # Target 1
+            "profit_target": 0.04,        # Target 2 (4.0%)
+            "partial_exit_pct": 0.02,      # Target 1 (2.0%)
             "use_atr_sl": False,
-            "stop_loss": 0.015,
+            "stop_loss": 0.015,            # Stop Loss (1.5%)
             "max_ema_dist_atr": 1.5,
             "adx_min": 25,
             "max_atr_allowed": 0.05,
@@ -108,41 +108,14 @@ CONFIG = {
             "max_capital": 30000,
             "opening_noise_mins": 15,
             "WAIT_FOR_FIRST_15M_CLOSE": True,
-            "mean_reversion_pct": 0.02,
+            "mean_reversion_pct": 0.025,   # Mean reversion threshold (2.5%)
             "correlated_index": "NIFTY"
         },
         "lookbacks": {"10m": 110, "30m": 60, "1h": 50}
     },
 
     # -------------------------------------------------------------------------
-    # 2. DLF (LONG)
-    # -------------------------------------------------------------------------
-    "DLF": {
-        "strategy_params": {
-            "sky_ema_period": 20,
-            "forest_ema_period": 9,
-            "tree_ema_period": 9,
-            "DIRECTION": "LONG",
-            "use_atr_target": False,
-            "profit_target": 0.025,
-            "partial_exit_pct": 0.015,
-            "use_atr_sl": False,
-            "stop_loss": 0.015,
-            "max_ema_dist_atr": 1.5,
-            "adx_min": 25,
-            "max_atr_allowed": 0.05,
-            "leverage": 3.0,
-            "max_capital": 30000,
-            "opening_noise_mins": 15,
-            "WAIT_FOR_FIRST_15M_CLOSE": True,
-            "mean_reversion_pct": 0.02,
-            "correlated_index": "NIFTY"
-        },
-        "lookbacks": {"10m": 110, "30m": 60, "1h": 50}
-    },
-
-    # -------------------------------------------------------------------------
-    # 3. ASIANPAINT (LONG)
+    # 2. ASIANPAINT (LONG)
     # -------------------------------------------------------------------------
     "ASIANPAINT": {
         "strategy_params": {
@@ -151,10 +124,10 @@ CONFIG = {
             "tree_ema_period": 9,
             "DIRECTION": "LONG",
             "use_atr_target": False,
-            "profit_target": 0.03,
-            "partial_exit_pct": 0.015,
+            "profit_target": 0.03,        # Target 2 (3.0%)
+            "partial_exit_pct": 0.015,     # Target 1 (1.5%)
             "use_atr_sl": False,
-            "stop_loss": 0.01,
+            "stop_loss": 0.012,            # Stop Loss (1.2%)
             "max_ema_dist_atr": 1.5,
             "adx_min": 25,
             "max_atr_allowed": 0.05,
@@ -162,7 +135,34 @@ CONFIG = {
             "max_capital": 30000,
             "opening_noise_mins": 15,
             "WAIT_FOR_FIRST_15M_CLOSE": True,
-            "mean_reversion_pct": 0.02,
+            "mean_reversion_pct": 0.025,   # Mean reversion threshold (2.5%)
+            "correlated_index": "NIFTY"
+        },
+        "lookbacks": {"10m": 110, "30m": 60, "1h": 50}
+    },
+
+    # -------------------------------------------------------------------------
+    # 3. INFY (LONG)
+    # -------------------------------------------------------------------------
+    "INFY": {
+        "strategy_params": {
+            "sky_ema_period": 20,
+            "forest_ema_period": 9,
+            "tree_ema_period": 9,
+            "DIRECTION": "LONG",
+            "use_atr_target": False,
+            "profit_target": 0.035,       # Target 2 (3.5%)
+            "partial_exit_pct": 0.02,      # Target 1 (2.0%)
+            "use_atr_sl": False,
+            "stop_loss": 0.015,            # Stop Loss (1.5%)
+            "max_ema_dist_atr": 1.5,
+            "adx_min": 25,
+            "max_atr_allowed": 0.05,
+            "leverage": 3.0,
+            "max_capital": 30000,
+            "opening_noise_mins": 15,
+            "WAIT_FOR_FIRST_15M_CLOSE": True,
+            "mean_reversion_pct": 0.025,   # Mean reversion threshold (2.5%)
             "correlated_index": "NIFTY"
         },
         "lookbacks": {"10m": 110, "30m": 60, "1h": 50}
@@ -178,37 +178,10 @@ CONFIG = {
             "tree_ema_period": 9,
             "DIRECTION": "SHORT",
             "use_atr_target": False,
-            "profit_target": 0.025,
-            "partial_exit_pct": 0.015,
+            "profit_target": 0.04,        # Target 2 (4.0%)
+            "partial_exit_pct": 0.02,      # Target 1 (2.0%)
             "use_atr_sl": False,
-            "stop_loss": 0.012,
-            "max_ema_dist_atr": 1.5,
-            "adx_min": 25,
-            "max_atr_allowed": 0.05,
-            "leverage": 3.0,
-            "max_capital": 30000,
-            "opening_noise_mins": 45,      # Increased to 45m to bypass morning short-squeeze
-            "WAIT_FOR_FIRST_15M_CLOSE": True,
-            "mean_reversion_pct": 0.02,
-            "correlated_index": "NIFTY"
-        },
-        "lookbacks": {"10m": 110, "30m": 60, "1h": 50}
-    },
-
-    # -------------------------------------------------------------------------
-    # 5. ICICIBANK (LONG)
-    # -------------------------------------------------------------------------
-    "ICICIBANK": {
-        "strategy_params": {
-            "sky_ema_period": 20,
-            "forest_ema_period": 9,
-            "tree_ema_period": 9,
-            "DIRECTION": "LONG",
-            "use_atr_target": False,
-            "profit_target": 0.018,
-            "partial_exit_pct": 0.01,
-            "use_atr_sl": False,
-            "stop_loss": 0.008,
+            "stop_loss": 0.015,            # Stop Loss (1.5%)
             "max_ema_dist_atr": 1.5,
             "adx_min": 25,
             "max_atr_allowed": 0.05,
@@ -216,8 +189,39 @@ CONFIG = {
             "max_capital": 30000,
             "opening_noise_mins": 15,
             "WAIT_FOR_FIRST_15M_CLOSE": True,
-            "mean_reversion_pct": 0.02,
-            "correlated_index": "BANKNIFTY"
+            "mean_reversion_pct": 0.025,   # Mean reversion threshold (2.5%)
+            "correlated_index": "NIFTY",
+            "trailing_type": "chandelier", # Tight trailing stop safeguard
+            "chandelier_multiplier": 1.5   # Tight trailing stop
+        },
+        "lookbacks": {"10m": 110, "30m": 60, "1h": 50}
+    },
+
+    # -------------------------------------------------------------------------
+    # 5. MUTHOOTFIN (SHORT)
+    # -------------------------------------------------------------------------
+    "MUTHOOTFIN": {
+        "strategy_params": {
+            "sky_ema_period": 20,
+            "forest_ema_period": 9,
+            "tree_ema_period": 9,
+            "DIRECTION": "SHORT",
+            "use_atr_target": False,
+            "profit_target": 0.03,        # Target 2 (3.0%)
+            "partial_exit_pct": 0.015,     # Target 1 (1.5%)
+            "use_atr_sl": False,
+            "stop_loss": 0.015,            # Stop Loss (1.5%)
+            "max_ema_dist_atr": 1.5,
+            "adx_min": 25,
+            "max_atr_allowed": 0.05,
+            "leverage": 3.0,
+            "max_capital": 30000,
+            "opening_noise_mins": 15,
+            "WAIT_FOR_FIRST_15M_CLOSE": True,
+            "mean_reversion_pct": 0.025,   # Mean reversion threshold (2.5%)
+            "correlated_index": "NIFTY",
+            "trailing_type": "chandelier", # Tight trailing stop safeguard
+            "chandelier_multiplier": 1.5   # Tight trailing stop
         },
         "lookbacks": {"10m": 110, "30m": 60, "1h": 50}
     },
