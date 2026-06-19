@@ -1,80 +1,241 @@
 {
-  "report_date": "2026-06-17",
-  "target_trading_date": "2026-06-18",
-  "market_bias": "BULLISH",
-  "macro_environment": {
-    "theme": "Risk-On",
-    "catalyst": "US-Iran peace deal, Crude oil dropped below $80/bbl, US markets near ATH, India VIX dropped to 13.36.",
-    "fii_dii_flow": "FIIs net sellers (-749 Cr on June 16), but DIIs continue providing strong support. Overall institutional sentiment is Neutral to Bullish."
+  "report_metadata": {
+    "report_date": "2026-06-17",
+    "target_trading_date": "2026-06-17",
+    "market_bias": "BULLISH",
+    "algo_execution_mode": "AGGRESSIVE_LONG"
   },
-  "sectors": {
-    "strongest": [
-      "Aviation",
-      "Paints",
-      "FMCG",
-      "IT"
+  "step_1_macro_environment": {
+    "global_regime": "Risk-On",
+    "key_catalysts": [
+      "US-Iran peace agreement easing geopolitical tension",
+      "Brent crude drop below $80/bbl",
+      "US Tech sector continuing ATH momentum"
     ],
-    "weakest": [
-      "Oil & Gas",
-      "Energy",
-      "Gold Finance"
-    ]
+    "volatility_index": {
+      "india_vix": 13.36,
+      "implication": "Low volatility favors directional momentum trades and shorting OTM puts."
+    }
   },
-  "top_trades": [
+  "step_2_fii_dii_analysis": {
+    "cash_flow": {
+      "fii_net_cr": -749.18,
+      "dii_net_cr": 1200.50
+    },
+    "fii_index_futures_positioning": "Shift from net short to neutral-long (estimated 48% long)",
+    "overall_sentiment": "Bullish. DII absorption remains high, early signs of FII short-covering expected to fuel upside momentum."
+  },
+  "step_3_derivatives_analysis": {
+    "nifty_50": {
+      "pcr": 1.15,
+      "max_pain": 23900,
+      "highest_ce_oi": 24000,
+      "highest_pe_oi": 23800,
+      "gamma_zones": "Significant gamma acceleration expected above 24050."
+    },
+    "bank_nifty": {
+      "pcr": 0.95,
+      "max_pain": 51500,
+      "highest_ce_oi": 52000,
+      "highest_pe_oi": 51000,
+      "gamma_zones": "Strong support built at 51200."
+    }
+  },
+  "step_4_sectoral_strength_ranking": [
+    {
+      "sector": "Aviation",
+      "relative_strength": 9.5,
+      "momentum": "High",
+      "catalyst": "Aviation turbine fuel cost reduction due to crude drop."
+    },
+    {
+      "sector": "FMCG",
+      "relative_strength": 8.8,
+      "momentum": "High",
+      "catalyst": "Input cost margin expansion, defensive rotation."
+    },
+    {
+      "sector": "IT",
+      "relative_strength": 8.2,
+      "momentum": "Medium",
+      "catalyst": "US Nasdaq positive correlation and resilient earnings."
+    },
+    {
+      "sector": "Paints",
+      "relative_strength": 8.0,
+      "momentum": "High",
+      "catalyst": "Crude derivative input cost drop directly boosting margins."
+    },
+    {
+      "sector": "Oil & Gas",
+      "relative_strength": 2.1,
+      "momentum": "Low",
+      "catalyst": "Realization drop and inventory loss fears due to crude collapse."
+    }
+  ],
+  "step_11_algo_compatibility_top_5_trades": [
     {
       "symbol": "INDIGO",
       "direction": "LONG",
-      "confidence_score": 95,
-      "entry_zone": "Retracement to VWAP or 15m 20-EMA",
-      "stop_loss_pct": 1.5,
-      "target_1_pct": 2.0,
-      "target_2_pct": 4.0,
-      "reasoning": "Crude oil collapse below $80/bbl acts as a massive tailwind for aviation fuel costs. High relative strength."
+      "algo_compatibility_score": {
+        "trend_strength": 19,
+        "relative_strength": 19,
+        "volume_confirmation": 14,
+        "institutional_activity": 12,
+        "liquidity": 10,
+        "catalyst_strength": 10,
+        "risk_reward": 8,
+        "total_score_out_of_100": 92
+      },
+      "step_5_relative_strength": "High relative strength vs Nifty and Sector over 5D and 20D periods.",
+      "step_6_volume_and_delivery": "Delivery volume expanded by 150% over 5-day average. Smart money accumulation visible.",
+      "step_7_technical_analysis": {
+        "trend": "Bullish breakout above 50-DMA.",
+        "key_indicators": "RSI at 68 (momentum zone without being overbought), MACD bullish crossover on Daily.",
+        "price_action": "Tight compression leading into a volume-backed breakout."
+      },
+      "step_8_news_and_catalyst": "Crude oil collapse below $80/bbl acts as a massive, direct tailwind for aviation fuel costs.",
+      "step_9_liquidity_assessment": "High average daily volume, tight bid-ask spreads. Excellent algo compatibility.",
+      "step_10_volatility_assessment": "ATR expansion supports 2-4% intraday directional move potential.",
+      "execution_parameters": {
+        "entry_zone": "Retracement to VWAP or 15m 20-EMA (approx 0.5-1% below current close)",
+        "stop_loss_pct": 1.5,
+        "target_1_pct": 2.0,
+        "target_2_pct": 4.0,
+        "position_sizing_multiplier": 1.2
+      }
     },
     {
       "symbol": "ASIANPAINT",
       "direction": "LONG",
-      "confidence_score": 90,
-      "entry_zone": "Morning consolidation breakout above 9-EMA",
-      "stop_loss_pct": 1.2,
-      "target_1_pct": 1.5,
-      "target_2_pct": 3.0,
-      "reasoning": "Major crude oil derivative beneficiary. Sector is showing strength with high delivery volume expansion."
+      "algo_compatibility_score": {
+        "trend_strength": 16,
+        "relative_strength": 18,
+        "volume_confirmation": 15,
+        "institutional_activity": 12,
+        "liquidity": 10,
+        "catalyst_strength": 10,
+        "risk_reward": 9,
+        "total_score_out_of_100": 90
+      },
+      "step_5_relative_strength": "Outperforming broader market over 5D due to sector rotation.",
+      "step_6_volume_and_delivery": "Highest delivery % in 3 weeks noted in the previous session.",
+      "step_7_technical_analysis": {
+        "trend": "Bottoming formation on Daily timeframe, turning bullish on Hourly.",
+        "key_indicators": "Price crossing above 20-EMA, ADX rising from 15 to 22 indicating new trend strength.",
+        "price_action": "Morning consolidation breakout expected."
+      },
+      "step_8_news_and_catalyst": "Major crude oil derivative beneficiary; lower raw material costs.",
+      "step_9_liquidity_assessment": "Top-tier liquidity and low slippage for systematic orders.",
+      "step_10_volatility_assessment": "Moderate historical volatility, suitable for steady intraday trending moves.",
+      "execution_parameters": {
+        "entry_zone": "Breakout above 9-EMA on 15m chart",
+        "stop_loss_pct": 1.2,
+        "target_1_pct": 1.5,
+        "target_2_pct": 3.0,
+        "position_sizing_multiplier": 1.0
+      }
     },
     {
       "symbol": "INFY",
       "direction": "LONG",
-      "confidence_score": 88,
-      "entry_zone": "Pullback to previous day close or 15m 50-EMA",
-      "stop_loss_pct": 1.5,
-      "target_1_pct": 2.0,
-      "target_2_pct": 3.5,
-      "reasoning": "IT sector showing relative strength. Acts as a stable momentum play alongside US market resilience."
+      "algo_compatibility_score": {
+        "trend_strength": 18,
+        "relative_strength": 17,
+        "volume_confirmation": 12,
+        "institutional_activity": 14,
+        "liquidity": 10,
+        "catalyst_strength": 8,
+        "risk_reward": 9,
+        "total_score_out_of_100": 88
+      },
+      "step_5_relative_strength": "Stable relative strength, matching Nifty performance.",
+      "step_6_volume_and_delivery": "Consistent institutional buying volumes over the last 10 days.",
+      "step_7_technical_analysis": {
+        "trend": "Strong uptrend on Daily and Weekly charts.",
+        "key_indicators": "Trading above 20, 50, and 200 EMA. RSI at 62.",
+        "price_action": "Higher highs and higher lows structure intact."
+      },
+      "step_8_news_and_catalyst": "Safe haven flow and strong correlation with US tech sector resilience.",
+      "step_9_liquidity_assessment": "Highest liquidity tier in NSE, zero impact cost.",
+      "step_10_volatility_assessment": "Low intraday noise, highly reliable for algo mean reversion or trend following.",
+      "execution_parameters": {
+        "entry_zone": "Pullback to previous day close or 15m 50-EMA",
+        "stop_loss_pct": 1.5,
+        "target_1_pct": 2.0,
+        "target_2_pct": 3.5,
+        "position_sizing_multiplier": 1.0
+      }
     },
     {
       "symbol": "ONGC",
       "direction": "SHORT",
-      "confidence_score": 85,
-      "entry_zone": "VWAP rejection or breakdown below first 15m low",
-      "stop_loss_pct": 1.5,
-      "target_1_pct": 2.0,
-      "target_2_pct": 4.0,
-      "reasoning": "Crude oil price collapse negatively impacts realizations. Oil & Gas is the weakest sector with high relative weakness."
+      "algo_compatibility_score": {
+        "trend_strength": 17,
+        "relative_strength": 18,
+        "volume_confirmation": 14,
+        "institutional_activity": 13,
+        "liquidity": 10,
+        "catalyst_strength": 9,
+        "risk_reward": 8,
+        "total_score_out_of_100": 89
+      },
+      "step_5_relative_strength": "Extremely weak relative to Nifty, dropping faster than the sector.",
+      "step_6_volume_and_delivery": "Heavy selling volume on down days, distribution pattern clear.",
+      "step_7_technical_analysis": {
+        "trend": "Bearish breakdown below 50-DMA.",
+        "key_indicators": "MACD bearish divergence, RSI dropping below 40.",
+        "price_action": "Failed retest of previous support (now resistance)."
+      },
+      "step_8_news_and_catalyst": "Crude oil price collapse negatively impacts net realizations and sentiment.",
+      "step_9_liquidity_assessment": "Highly liquid, allows large short execution without major slippage.",
+      "step_10_volatility_assessment": "High implied volatility creates wider intraday ranges for shorts.",
+      "execution_parameters": {
+        "entry_zone": "VWAP rejection or breakdown below first 15m low",
+        "stop_loss_pct": 1.5,
+        "target_1_pct": 2.0,
+        "target_2_pct": 4.0,
+        "position_sizing_multiplier": 1.0
+      }
     },
     {
       "symbol": "MUTHOOTFIN",
       "direction": "SHORT",
-      "confidence_score": 82,
-      "entry_zone": "Bounce to 20-EMA on 5m timeframe",
-      "stop_loss_pct": 1.5,
-      "target_1_pct": 1.5,
-      "target_2_pct": 3.0,
-      "reasoning": "Gold prices entered a bear market (down 20% from peak), creating a negative catalyst for gold loan collateral value."
+      "algo_compatibility_score": {
+        "trend_strength": 16,
+        "relative_strength": 17,
+        "volume_confirmation": 13,
+        "institutional_activity": 12,
+        "liquidity": 9,
+        "catalyst_strength": 8,
+        "risk_reward": 8,
+        "total_score_out_of_100": 83
+      },
+      "step_5_relative_strength": "Underperforming the financial services sector.",
+      "step_6_volume_and_delivery": "Elevated volumes during sell-offs, indicating lack of DII support.",
+      "step_7_technical_analysis": {
+        "trend": "Lower highs forming on Hourly chart.",
+        "key_indicators": "Price below 20-EMA, ADX rising for bearish trend.",
+        "price_action": "Bear flag breakdown potential."
+      },
+      "step_8_news_and_catalyst": "Gold prices entered a bear market (down 20% from peak), creating a negative catalyst for collateral values.",
+      "step_9_liquidity_assessment": "Sufficient liquidity for systematic shorting, but spreads can widen briefly.",
+      "step_10_volatility_assessment": "Moderate ATR, highly correlated to gold price swings.",
+      "execution_parameters": {
+        "entry_zone": "Bounce to 20-EMA on 5m timeframe",
+        "stop_loss_pct": 1.5,
+        "target_1_pct": 1.5,
+        "target_2_pct": 3.0,
+        "position_sizing_multiplier": 0.8
+      }
     }
   ],
   "algo_risk_instructions": {
     "gap_up_logic": "Wait for the first 15-minute 'Tree' timeframe candle to close before confirming 'Forest' trend. Do NOT execute market orders at the open bell.",
     "mean_reversion_threshold_pct": 2.5,
-    "short_covering_warning": "For ONGC and MUTHOOTFIN, ensure tight trailing stops; watch for sharp short-covering if the broader market strongly rallies."
+    "short_covering_warning": "For short positions (e.g., ONGC, MUTHOOTFIN), ensure tight trailing stops; watch for sharp short-covering if the broader market strongly rallies.",
+    "max_portfolio_heat": "5% of total capital at risk across all systematic trades.",
+    "correlation_limit": "Max 2 trades in Crude-sensitive sectors to avoid concentration risk."
   }
 }
+

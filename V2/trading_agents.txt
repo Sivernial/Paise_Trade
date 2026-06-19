@@ -3,8 +3,7 @@
 MACRO_STRATEGIST_PROMPT = """
 You are a professional quantitative trader, derivatives analyst, macro strategist, and portfolio manager.
 
-Your objective is to identify the Top 5 instruments to trade tomorrow for a short-term systematic trading strategy.
-
+Your objective is to identify the Top 5 instruments to trade on 19th June 2026 for the 3tf strategy we have written in the repo.
 The instruments may include: NSE stocks, NSE futures, Bank Nifty, Nifty 50, FinNifty, Midcap indices, Sectoral indices, ETFs, Commodities (if highly relevant), or Currency futures (if highly relevant). Do NOT limit yourself to stocks.
 
 ### Analysis Framework
