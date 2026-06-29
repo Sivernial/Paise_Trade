@@ -84,47 +84,20 @@ ADVANCED FEATURES:
 ================================================================================
 """
 
-SYMBOLS = ["INDIGO", "ASIANPAINT", "INFY", "ONGC", "MUTHOOTFIN"]
+SYMBOLS = ["SUNPHARMA", "TRENT", "INFY", "ASIANPAINT", "HDFCBANK"]
 
 CONFIG = {
     # -------------------------------------------------------------------------
-    # 1. INDIGO (LONG)
+    # 1. SUNPHARMA (LONG)
     # -------------------------------------------------------------------------
-    "INDIGO": {
+    "SUNPHARMA": {
         "strategy_params": {
             "sky_ema_period": 20,
             "forest_ema_period": 9,
             "tree_ema_period": 9,
             "DIRECTION": "LONG",
             "use_atr_target": False,
-            "profit_target": 0.040,        # Target 2 (4.0%)
-            "partial_exit_pct": 0.020,      # Target 1 (2.0%)
-            "use_atr_sl": False,
-            "stop_loss": 0.015,             # Stop Loss (1.5%)
-            "max_ema_dist_atr": 1.5,
-            "adx_min": 25,
-            "max_atr_allowed": 0.05,
-            "leverage": 3.0,
-            "max_capital": 30000,           # 25000 * 1.2 sizing multiplier
-            "opening_noise_mins": 15,
-            "WAIT_FOR_FIRST_15M_CLOSE": True,
-            "mean_reversion_pct": 0.025,    # 2.5% threshold
-            "correlated_index": "NIFTY"
-        },
-        "lookbacks": {"10m": 110, "30m": 60, "1h": 50}
-    },
-
-    # -------------------------------------------------------------------------
-    # 2. ASIANPAINT (LONG)
-    # -------------------------------------------------------------------------
-    "ASIANPAINT": {
-        "strategy_params": {
-            "sky_ema_period": 20,
-            "forest_ema_period": 9,
-            "tree_ema_period": 9,
-            "DIRECTION": "LONG",
-            "use_atr_target": False,
-            "profit_target": 0.030,        # Target 2 (3.0%)
+            "profit_target": 0.030,         # Target 2 (3.0%)
             "partial_exit_pct": 0.015,      # Target 1 (1.5%)
             "use_atr_sl": False,
             "stop_loss": 0.012,             # Stop Loss (1.2%)
@@ -142,16 +115,16 @@ CONFIG = {
     },
 
     # -------------------------------------------------------------------------
-    # 3. INFY (LONG)
+    # 2. TRENT (LONG)
     # -------------------------------------------------------------------------
-    "INFY": {
+    "TRENT": {
         "strategy_params": {
             "sky_ema_period": 20,
             "forest_ema_period": 9,
             "tree_ema_period": 9,
             "DIRECTION": "LONG",
             "use_atr_target": False,
-            "profit_target": 0.035,        # Target 2 (3.5%)
+            "profit_target": 0.040,         # Target 2 (4.0%)
             "partial_exit_pct": 0.020,      # Target 1 (2.0%)
             "use_atr_sl": False,
             "stop_loss": 0.015,             # Stop Loss (1.5%)
@@ -169,16 +142,16 @@ CONFIG = {
     },
 
     # -------------------------------------------------------------------------
-    # 4. ONGC (SHORT)
+    # 3. INFY (SHORT) - Warning: Tight trailing stop advised due to short-covering risk
     # -------------------------------------------------------------------------
-    "ONGC": {
+    "INFY": {
         "strategy_params": {
             "sky_ema_period": 20,
             "forest_ema_period": 9,
             "tree_ema_period": 9,
             "DIRECTION": "SHORT",
             "use_atr_target": False,
-            "profit_target": 0.040,        # Target 2 (4.0%)
+            "profit_target": 0.035,         # Target 2 (3.5%)
             "partial_exit_pct": 0.020,      # Target 1 (2.0%)
             "use_atr_sl": False,
             "stop_loss": 0.015,             # Stop Loss (1.5%)
@@ -196,28 +169,55 @@ CONFIG = {
     },
 
     # -------------------------------------------------------------------------
-    # 5. MUTHOOTFIN (SHORT)
+    # 4. ASIANPAINT (LONG)
     # -------------------------------------------------------------------------
-    "MUTHOOTFIN": {
+    "ASIANPAINT": {
         "strategy_params": {
             "sky_ema_period": 20,
             "forest_ema_period": 9,
             "tree_ema_period": 9,
-            "DIRECTION": "SHORT",
+            "DIRECTION": "LONG",
             "use_atr_target": False,
-            "profit_target": 0.030,        # Target 2 (3.0%)
+            "profit_target": 0.030,         # Target 2 (3.0%)
             "partial_exit_pct": 0.015,      # Target 1 (1.5%)
             "use_atr_sl": False,
-            "stop_loss": 0.015,             # Stop Loss (1.5%)
+            "stop_loss": 0.012,             # Stop Loss (1.2%)
             "max_ema_dist_atr": 1.5,
             "adx_min": 25,
             "max_atr_allowed": 0.05,
             "leverage": 3.0,
-            "max_capital": 20000,           # 25000 * 0.8 sizing multiplier
+            "max_capital": 25000,           # 25000 * 1.0 sizing multiplier
             "opening_noise_mins": 15,
             "WAIT_FOR_FIRST_15M_CLOSE": True,
             "mean_reversion_pct": 0.025,    # 2.5% threshold
             "correlated_index": "NIFTY"
+        },
+        "lookbacks": {"10m": 110, "30m": 60, "1h": 50}
+    },
+
+    # -------------------------------------------------------------------------
+    # 5. HDFCBANK (LONG)
+    # -------------------------------------------------------------------------
+    "HDFCBANK": {
+        "strategy_params": {
+            "sky_ema_period": 20,
+            "forest_ema_period": 9,
+            "tree_ema_period": 9,
+            "DIRECTION": "LONG",
+            "use_atr_target": False,
+            "profit_target": 0.025,         # Target 2 (2.5%)
+            "partial_exit_pct": 0.015,      # Target 1 (1.5%)
+            "use_atr_sl": False,
+            "stop_loss": 0.010,             # Stop Loss (1.0%)
+            "max_ema_dist_atr": 1.5,
+            "adx_min": 25,
+            "max_atr_allowed": 0.05,
+            "leverage": 3.0,
+            "max_capital": 25000,           # 25000 * 1.0 sizing multiplier
+            "opening_noise_mins": 15,
+            "WAIT_FOR_FIRST_15M_CLOSE": True,
+            "mean_reversion_pct": 0.025,    # 2.5% threshold
+            "correlated_index": "BANKNIFTY"
         },
         "lookbacks": {"10m": 110, "30m": 60, "1h": 50}
     },
